@@ -1,6 +1,8 @@
 #!/usr/bin/env bash
 # wait-for-it.sh
 
+chmod +x wait-for-it.sh
+
 host="$1"
 shift
 port="$1"

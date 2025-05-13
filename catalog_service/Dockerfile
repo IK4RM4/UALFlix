@@ -11,7 +11,7 @@ RUN apt-get update && apt-get install -y netcat-openbsd curl && rm -rf /var/lib/
 COPY . .
 
 # Tornar o script executável
-RUN chmod +x ./wait-for-it.sh
+RUN chmod +x wait-for-it.sh
 
 # Expor porta
 EXPOSE 8000

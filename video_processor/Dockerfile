@@ -2,26 +2,22 @@ FROM python:3.10
 
 WORKDIR /app
 
-RUN apt-get update && apt-get install -y \
-    ffmpeg \
-    libavcodec-extra \
-    libavformat-dev \
-    libavutil-dev \
-    netcat-openbsd \
-    curl \
-    && rm -rf /var/lib/apt/lists/*
-
 COPY requirements.txt .
 RUN pip install -r requirements.txt
 
+# Install necessary utilities including dos2unix
+RUN apt-get update && apt-get install -y netcat-openbsd curl dos2unix && rm -rf /var/lib/apt/lists/*
+
 COPY . .
 
-# Expor porta para métricas do Prometheus
-EXPOSE 9102
+# Convert the file's line endings to Unix format (dos2unix is now installed)
+RUN dos2unix ./wait-for-it.sh
 
-# Healthcheck
-HEALTHCHECK --interval=30s --timeout=10s --start-period=5s --retries=3 \
-    CMD curl -f http://localhost:9102/health || exit 1
+# Ensure the script is executable
+RUN chmod +x ./wait-for-it.sh
 
-# Usa wait-for-it para garantir que o RabbitMQ esteja pronto
-CMD ["./wait-for-it.sh", "queue_service", "5672", "--", "python", "processor.py"]
+# Expose port
+EXPOSE 8000
+
+# Use shell script for command to allow variable expansion
+CMD ["./wait-for-it.sh", "ualflix_db", "5432", "--", "python", "processor.py"]

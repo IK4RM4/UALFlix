@@ -13,3 +13,5 @@ done
 
 echo "Service $host:$port is up!"
 exec "$@"
+EOF
+    chmod +x video_processor/wait-for-it.sh

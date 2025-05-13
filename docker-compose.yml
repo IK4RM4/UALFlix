@@ -1,14 +1,10 @@
-
 services:
   ualflix_db:
     image: postgres:13
-    restart: always
     environment:
       POSTGRES_USER: postgres
       POSTGRES_PASSWORD: password
       POSTGRES_DB: ualflix
-    ports:
-      - "5432:5432"
     networks:
       - ualflix_network
     volumes:
@@ -19,9 +15,7 @@ services:
     build: ./catalog_service
     depends_on:
       - ualflix_db
-    command: ["./wait-for-it.sh", "ualflix_db", "5432", "--", "python", "app.py"]
-    ports:
-      - "8000:8000"
+      - queue_service
     networks:
       - ualflix_network
     volumes:
@@ -29,17 +23,33 @@ services:
 
   streaming_service:
     build: ./streaming_service
-    ports:
-      - "8001:8001"
     volumes:
       - video_storage:/videos
     networks:
       - ualflix_network
 
+  video_processor:
+    build: ./video_processor
+    depends_on:
+      - queue_service
+    networks:
+      - ualflix_network
+    volumes:
+      - video_storage:/videos
+
+  queue_service:
+    image: rabbitmq:3-management
+    networks:
+      - ualflix_network
+    ports:
+      - "5672:5672"
+      - "15672:15672"
+    environment:
+      - RABBITMQ_DEFAULT_USER=ualflix
+      - RABBITMQ_DEFAULT_PASS=ualflix_password
+
   frontend:
     build: ./frontend
-    ports:
-      - "3000:3000"
     networks:
       - ualflix_network
 
@@ -57,9 +67,40 @@ services:
     networks:
       - ualflix_network
 
+  # Prometheus para coleta de métricas
+  prometheus:
+    image: prom/prometheus:latest
+    volumes:
+      - ./monitoring/prometheus.yml:/etc/prometheus/prometheus.yml
+    ports:
+      - "9090:9090"
+    networks:
+      - ualflix_network
+    depends_on:
+      - catalog_service
+      - streaming_service
+
+  # Grafana para visualização de dashboards
+  grafana:
+    image: grafana/grafana:latest
+    ports:
+      - "3000:3000"
+    volumes:
+      - grafana_data:/var/lib/grafana
+      - ./monitoring/grafana/provisioning:/etc/grafana/provisioning
+    networks:
+      - ualflix_network
+    depends_on:
+      - prometheus
+    environment:
+      - GF_SECURITY_ADMIN_USER=admin
+      - GF_SECURITY_ADMIN_PASSWORD=admin
+
 volumes:
   db_data:
   video_storage:
+  grafana_data:
+
 
 networks:
   ualflix_network:

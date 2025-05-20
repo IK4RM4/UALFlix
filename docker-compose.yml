@@ -21,6 +21,14 @@ services:
     volumes:
       - video_storage:/videos
 
+  authentication_service:
+    build: ./authentication_service
+    depends_on:
+      - ualflix_db
+      - queue_service
+    networks:
+      - ualflix_network
+
   streaming_service:
     build: ./streaming_service
     volumes:
@@ -100,7 +108,6 @@ volumes:
   db_data:
   video_storage:
   grafana_data:
-
 
 networks:
   ualflix_network:

@@ -157,7 +157,7 @@ function SystemStatus({ status, onRefresh }) {
                   Reiniciar Serviço
                 </button>
                 <a 
-                  href={`/dashboard/d/service-details/service-details?var-service=${selectedService.name}`}
+                  href={`/grafana/d/service-details/service-details?var-service=${selectedService.name}`}
                   target="_blank"
                   rel="noopener noreferrer"
                   className="dashboard-link"

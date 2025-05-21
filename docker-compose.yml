@@ -58,6 +58,8 @@ services:
 
   frontend:
     build: ./frontend
+    ports:
+      - "3000:3000"  # Adicionado mapeamento de porta para o frontend
     networks:
       - ualflix_network
 
@@ -88,11 +90,10 @@ services:
       - catalog_service
       - streaming_service
 
-  # Grafana para visualização de dashboards
   grafana:
     image: grafana/grafana:latest
     ports:
-      - "3000:3000"
+      - "4000:4000"  
     volumes:
       - grafana_data:/var/lib/grafana
       - ./monitoring/grafana/provisioning:/etc/grafana/provisioning
@@ -103,6 +104,7 @@ services:
     environment:
       - GF_SECURITY_ADMIN_USER=admin
       - GF_SECURITY_ADMIN_PASSWORD=admin
+      - GF_SERVER_HTTP_PORT=4000 
 
 volumes:
   db_data:

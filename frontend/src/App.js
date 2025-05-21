@@ -13,6 +13,7 @@ function App() {
   const [authenticated, setAuthenticated] = useState(false);
   const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
+  const [loginError, setLoginError] = useState(null);
   const [systemStatus, setSystemStatus] = useState({
     services: [],
     isAdmin: false,
@@ -21,23 +22,61 @@ function App() {
 
   const onLogin = async (e) => {
     e.preventDefault();
-    const response = await api.post("/login", {
-      username,
-      password,
-    });
-    const data = await response.json();
-    setAuthenticated(data.authenticated);
+    setLoginError(null);
+    
+    try {
+      console.log("Tentando login para:", username);
+      const response = await api.post("/auth/login", {  // Corrigido: removido prefixo '/api'
+        username,
+        password,
+      });
+      
+      console.log("Resposta de login:", response.data);
+      
+      if (response.data.success) {
+        setAuthenticated(true);
+        localStorage.setItem('authenticated', 'true');
+        localStorage.setItem('username', username);
+      } else {
+        setLoginError(response.data.error || "Login falhou");
+      }
+    } catch (err) {
+      console.error("Erro de login:", err);
+      setLoginError(err.response?.data?.error || "Erro durante o login. Por favor, tente novamente.");
+    }
   };
 
   const onRegister = async (e) => {
     e.preventDefault();
-    const response = await api.post("/register", {
-      username,
-      password,
-    });
-    const data = await response.json();
-    console.log(data);
-    setAuthenticated(data.authenticated);
+    setLoginError(null);
+    
+    try {
+      console.log("Tentando registar:", username);
+      const response = await api.post("/auth/register", {  // Corrigido: removido prefixo '/api'
+        username,
+        password,
+      });
+      
+      console.log("Resposta de registo:", response.data);
+      
+      if (response.data.success) {
+        // Fazer login automaticamente após o registo bem-sucedido
+        setAuthenticated(true);
+        localStorage.setItem('authenticated', 'true');
+        localStorage.setItem('username', username);
+      } else {
+        setLoginError(response.data.error || "Registo falhou");
+      }
+    } catch (err) {
+      console.error("Erro de registo:", err);
+      setLoginError(err.response?.data?.error || "Erro durante o registo. Por favor, tente novamente.");
+    }
+  };
+
+  const onLogout = () => {
+    setAuthenticated(false);
+    localStorage.removeItem('authenticated');
+    localStorage.removeItem('username');
   };
 
   const fetchVideos = async () => {
@@ -89,6 +128,15 @@ function App() {
   };
 
   useEffect(() => {
+    // Verificar se o utilizador estava previamente autenticado
+    const storedAuth = localStorage.getItem('authenticated');
+    const storedUsername = localStorage.getItem('username');
+    
+    if (storedAuth === 'true' && storedUsername) {
+      setAuthenticated(true);
+      setUsername(storedUsername);
+    }
+    
     fetchVideos();
     fetchSystemStatus();
   }, []);
@@ -131,6 +179,12 @@ function App() {
                   Administração
                 </button>
               )}
+              <button 
+                className="nav-btn logout-btn" 
+                onClick={onLogout}
+              >
+                Sair
+              </button>
             </nav>
           </header>
 
@@ -163,23 +217,43 @@ function App() {
           </footer>
         </div>
       ) : (
-        <div>
-          <h1>Login</h1>
-          <form>
-            <input
-              type="text"
-              placeholder="Username"
-              value={username}
-              onChange={(e) => setUsername(e.target.value)}
-            />
-            <input
-              type="password"
-              placeholder="Password"
-              value={password}
-              onChange={(e) => setPassword(e.target.value)}
-            />
-            <button onClick={onLogin}>Login</button>
-            <button onClick={onRegister}>Register</button>
+        <div className="login-container">
+          <h1>UALFlix 🎬</h1>
+          <h2>Login</h2>
+          
+          {loginError && (
+            <div className="login-error">
+              {loginError}
+            </div>
+          )}
+          
+          <form className="auth-form">
+            <div className="form-group">
+              <label htmlFor="username">Nome de utilizador</label>
+              <input
+                id="username"
+                type="text"
+                placeholder="Digite o seu nome de utilizador"
+                value={username}
+                onChange={(e) => setUsername(e.target.value)}
+              />
+            </div>
+            
+            <div className="form-group">
+              <label htmlFor="password">Password</label>
+              <input
+                id="password"
+                type="password"
+                placeholder="Digite a sua password"
+                value={password}
+                onChange={(e) => setPassword(e.target.value)}
+              />
+            </div>
+            
+            <div className="auth-buttons">
+              <button className="auth-btn login-btn" onClick={onLogin}>Entrar</button>
+              <button className="auth-btn register-btn" onClick={onRegister}>Registar</button>
+            </div>
           </form>
         </div>
       )}

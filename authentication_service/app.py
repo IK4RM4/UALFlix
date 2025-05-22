@@ -17,18 +17,22 @@ CORS(
     app,
     resources={
         r"/*": {
-            "origins": ["http://localhost:3000", "http://127.0.0.1:3000"],
+            "origins": ["http://localhost", "http://localhost:3000", "http://127.0.0.1:3000"],
             "methods": ["GET", "POST", "OPTIONS"],
-            "allow_headers": ["Content-Type"],
+            "allow_headers": ["Content-Type", "Authorization"],
         }
     },
 )
 
-
-@app.route("/api/register", methods=["POST"])
+@app.route("/register", methods=["POST"])
 def register():
     try:
-        data = request.get_json
+        # CORREÇÃO: usar request.get_json() em vez de request.get_json
+        data = request.get_json()
+        
+        if not data:
+            return jsonify({"success": False, "error": "No data provided"}), 400
+            
         username = data.get("username")
         password = data.get("password")
 
@@ -62,6 +66,7 @@ def register():
         cur.close()
         conn.close()
 
+        logger.info(f"User {username} registered successfully")
         return (
             jsonify({"success": True, "message": "User registered successfully"}),
             201,
@@ -72,10 +77,14 @@ def register():
         return jsonify({"success": False, "error": "Internal server error"}), 500
 
 
-@app.route("/api/login", methods=["POST"])
+@app.route("/login", methods=["POST"])
 def login():
     try:
         data = request.get_json()
+        
+        if not data:
+            return jsonify({"success": False, "error": "No data provided"}), 400
+            
         username = data.get("username")
         password = data.get("password")
 
@@ -104,6 +113,7 @@ def login():
 
         # Check password
         if check_password_hash(user[1], password):
+            logger.info(f"User {username} logged in successfully")
             return jsonify({"success": True, "message": "Login successful"}), 200
         else:
             return (

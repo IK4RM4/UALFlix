@@ -26,7 +26,7 @@ function App() {
     
     try {
       console.log("Tentando login para:", username);
-      const response = await api.post("/auth/login", {  // Corrigido: removido prefixo '/api'
+      const response = await api.post("/auth/login", {
         username,
         password,
       });
@@ -52,7 +52,7 @@ function App() {
     
     try {
       console.log("Tentando registar:", username);
-      const response = await api.post("/auth/register", {  // Corrigido: removido prefixo '/api'
+      const response = await api.post("/auth/register", {
         username,
         password,
       });
@@ -183,7 +183,7 @@ function App() {
                 className="nav-btn logout-btn" 
                 onClick={onLogout}
               >
-                Sair
+                Sair ({username})
               </button>
             </nav>
           </header>
@@ -255,6 +255,12 @@ function App() {
               <button className="auth-btn register-btn" onClick={onRegister}>Registar</button>
             </div>
           </form>
+          
+          <div className="demo-users">
+            <h3>Utilizadores de demonstração:</h3>
+            <p><strong>Admin:</strong> username: admin, password: admin123</p>
+            <p><strong>User:</strong> username: user, password: user123</p>
+          </div>
         </div>
       )}
     </>

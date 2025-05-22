@@ -88,6 +88,8 @@ services:
     build: ./frontend
     networks:
       - ualflix_network
+    ports:
+      - "3000:3000"
     healthcheck:
       test: ["CMD-SHELL", "curl -f http://localhost:3000 || exit 1"]
       interval: 30s

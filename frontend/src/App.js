@@ -23,60 +23,66 @@ function App() {
   const onLogin = async (e) => {
     e.preventDefault();
     setLoginError(null);
-    
+
     try {
       console.log("Tentando login para:", username);
-      const response = await api.post("/auth/login", {
+      const response = await api.post("/login", {
         username,
         password,
       });
-      
+
       console.log("Resposta de login:", response.data);
-      
+
       if (response.data.success) {
         setAuthenticated(true);
-        localStorage.setItem('authenticated', 'true');
-        localStorage.setItem('username', username);
+        localStorage.setItem("authenticated", "true");
+        localStorage.setItem("username", username);
       } else {
         setLoginError(response.data.error || "Login falhou");
       }
     } catch (err) {
       console.error("Erro de login:", err);
-      setLoginError(err.response?.data?.error || "Erro durante o login. Por favor, tente novamente.");
+      setLoginError(
+        err.response?.data?.error ||
+          "Erro durante o login. Por favor, tente novamente."
+      );
     }
   };
 
   const onRegister = async (e) => {
     e.preventDefault();
     setLoginError(null);
-    
+
     try {
       console.log("Tentando registar:", username);
-      const response = await api.post("/auth/register", {
+      const response = await api.post("/register", {
         username,
         password,
       });
-      
+
       console.log("Resposta de registo:", response.data);
-      
+
       if (response.data.success) {
         // Fazer login automaticamente após o registo bem-sucedido
         setAuthenticated(true);
-        localStorage.setItem('authenticated', 'true');
-        localStorage.setItem('username', username);
+        localStorage.setItem("authenticated", "true");
+        localStorage.setItem("username", username);
       } else {
         setLoginError(response.data.error || "Registo falhou");
       }
     } catch (err) {
       console.error("Erro de registo:", err);
-      setLoginError(err.response?.data?.error || "Erro durante o registo. Por favor, tente novamente.");
+      setLoginError(
+        err.response?.data?.error ||
+          "Erro durante o registo. Por favor, tente novamente."
+      );
     }
   };
 
   const onLogout = () => {
     setAuthenticated(false);
-    localStorage.removeItem('authenticated');
-    localStorage.removeItem('username');
+    localStorage.removeItem("authenticated");
+    localStorage.removeItem("username");
   };
 
   const fetchVideos = async () => {
@@ -129,14 +135,14 @@ function App() {
 
   useEffect(() => {
     // Verificar se o utilizador estava previamente autenticado
-    const storedAuth = localStorage.getItem('authenticated');
-    const storedUsername = localStorage.getItem('username');
-    
-    if (storedAuth === 'true' && storedUsername) {
+    const storedAuth = localStorage.getItem("authenticated");
+    const storedUsername = localStorage.getItem("username");
+
+    if (storedAuth === "true" && storedUsername) {
       setAuthenticated(true);
       setUsername(storedUsername);
     }
-    
+
     fetchVideos();
     fetchSystemStatus();
   }, []);
@@ -179,10 +185,7 @@ function App() {
                   Administração
                 </button>
               )}
-              <button 
-                className="nav-btn logout-btn" 
-                onClick={onLogout}
-              >
+              <button className="nav-btn logout-btn" onClick={onLogout}>
                 Sair ({username})
               </button>
             </nav>
@@ -220,13 +223,9 @@ function App() {
         <div className="login-container">
           <h1>UALFlix 🎬</h1>
           <h2>Login</h2>
-          
-          {loginError && (
-            <div className="login-error">
-              {loginError}
-            </div>
-          )}
-          
+
+          {loginError && <div className="login-error">{loginError}</div>}
+
           <form className="auth-form">
             <div className="form-group">
               <label htmlFor="username">Nome de utilizador</label>
@@ -238,7 +237,7 @@ function App() {
                 onChange={(e) => setUsername(e.target.value)}
               />
             </div>
-            
+
             <div className="form-group">
               <label htmlFor="password">Password</label>
               <input
@@ -249,14 +248,16 @@ function App() {
                 onChange={(e) => setPassword(e.target.value)}
               />
             </div>
-            
+
             <div className="auth-buttons">
-              <button className="auth-btn login-btn" onClick={onLogin}>Entrar</button>
-              <button className="auth-btn register-btn" onClick={onRegister}>Registar</button>
+              <button className="auth-btn login-btn" onClick={onLogin}>
+                Entrar
+              </button>
+              <button className="auth-btn register-btn" onClick={onRegister}>
+                Registar
+              </button>
             </div>
           </form>
-          
-          
         </div>
       )}
     </>

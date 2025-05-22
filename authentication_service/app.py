@@ -17,22 +17,18 @@ CORS(
     app,
     resources={
         r"/*": {
-            "origins": ["http://localhost", "http://localhost:3000", "http://127.0.0.1:3000"],
+            "origins": ["http://localhost:3000", "http://127.0.0.1:3000"],
             "methods": ["GET", "POST", "OPTIONS"],
-            "allow_headers": ["Content-Type", "Authorization"],
+            "allow_headers": ["Content-Type"],
         }
     },
 )
 
+
 @app.route("/register", methods=["POST"])
 def register():
     try:
-        # CORREÇÃO: usar request.get_json() em vez de request.get_json
-        data = request.get_json()
-        
-        if not data:
-            return jsonify({"success": False, "error": "No data provided"}), 400
-            
+        data = request.get_json
         username = data.get("username")
         password = data.get("password")
 
@@ -43,9 +39,6 @@ def register():
                 ),
                 400,
             )
-
-         # NOVA LÓGICA: Se o username for "admin", tornar automaticamente admin
-        is_admin = True if username.lower() == "admin" else False
 
         # Hash the password
         hashed_password = generate_password_hash(password)
@@ -60,16 +53,15 @@ def register():
             conn.close()
             return jsonify({"success": False, "error": "Username already exists"}), 400
 
-        # Insert new user with admin logic
+        # Insert new user
         cur.execute(
-            "INSERT INTO users (username, password, is_admin) VALUES (%s, %s, %s)",
-            (username, hashed_password, is_admin),
+            "INSERT INTO users (username, password) VALUES (%s, %s)",
+            (username, hashed_password),
         )
         conn.commit()
         cur.close()
         conn.close()
 
-        logger.info(f"User {username} registered successfully")
         return (
             jsonify({"success": True, "message": "User registered successfully"}),
             201,
@@ -84,10 +76,6 @@ def register():
 def login():
     try:
         data = request.get_json()
-        
-        if not data:
-            return jsonify({"success": False, "error": "No data provided"}), 400
-            
         username = data.get("username")
         password = data.get("password")
 
@@ -116,7 +104,6 @@ def login():
 
         # Check password
         if check_password_hash(user[1], password):
-            logger.info(f"User {username} logged in successfully")
             return jsonify({"success": True, "message": "Login successful"}), 200
         else:
             return (

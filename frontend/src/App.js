@@ -256,11 +256,7 @@ function App() {
             </div>
           </form>
           
-          <div className="demo-users">
-            <h3>Utilizadores de demonstração:</h3>
-            <p><strong>Admin:</strong> username: admin, password: admin123</p>
-            <p><strong>User:</strong> username: user, password: user123</p>
-          </div>
+          
         </div>
       )}
     </>

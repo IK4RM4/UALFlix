@@ -44,6 +44,9 @@ def register():
                 400,
             )
 
+         # NOVA LÓGICA: Se o username for "admin", tornar automaticamente admin
+        is_admin = True if username.lower() == "admin" else False
+
         # Hash the password
         hashed_password = generate_password_hash(password)
 
@@ -57,10 +60,10 @@ def register():
             conn.close()
             return jsonify({"success": False, "error": "Username already exists"}), 400
 
-        # Insert new user
+        # Insert new user with admin logic
         cur.execute(
-            "INSERT INTO users (username, password) VALUES (%s, %s)",
-            (username, hashed_password),
+            "INSERT INTO users (username, password, is_admin) VALUES (%s, %s, %s)",
+            (username, hashed_password, is_admin),
         )
         conn.commit()
         cur.close()

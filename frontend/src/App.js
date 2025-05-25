@@ -11,14 +11,24 @@ function App() {
   const [error, setError] = useState(null);
   const [activeTab, setActiveTab] = useState("videos");
   const [authenticated, setAuthenticated] = useState(false);
+  const [user, setUser] = useState(null);
   const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
   const [loginError, setLoginError] = useState(null);
-  const [systemStatus, setSystemStatus] = useState({
-    services: [],
-    isAdmin: false,
-    loading: true,
-  });
+
+  const saveSession = (token, userData) => {
+    localStorage.setItem('sessionToken', token);
+    localStorage.setItem('authenticated', 'true');
+    localStorage.setItem('username', userData.username);
+    localStorage.setItem('user', JSON.stringify(userData));
+  };
+
+  const clearSession = () => {
+    localStorage.removeItem('sessionToken');
+    localStorage.removeItem('authenticated');
+    localStorage.removeItem('username');
+    localStorage.removeItem('user');
+  };
 
   const onLogin = async (e) => {
     e.preventDefault();
@@ -35,8 +45,8 @@ function App() {
       
       if (response.data.success) {
         setAuthenticated(true);
-        localStorage.setItem('authenticated', 'true');
-        localStorage.setItem('username', username);
+        setUser(response.data.user);
+        saveSession(response.data.token, response.data.user);
       } else {
         setLoginError(response.data.error || "Login falhou");
       }
@@ -60,10 +70,9 @@ function App() {
       console.log("Resposta de registo:", response.data);
       
       if (response.data.success) {
-        // Fazer login automaticamente após o registo bem-sucedido
         setAuthenticated(true);
-        localStorage.setItem('authenticated', 'true');
-        localStorage.setItem('username', username);
+        setUser(response.data.user);
+        saveSession(response.data.token, response.data.user);
       } else {
         setLoginError(response.data.error || "Registo falhou");
       }
@@ -73,10 +82,40 @@ function App() {
     }
   };
 
-  const onLogout = () => {
-    setAuthenticated(false);
-    localStorage.removeItem('authenticated');
-    localStorage.removeItem('username');
+  const onLogout = async () => {
+    try {
+      const token = localStorage.getItem('sessionToken');
+      if (token) {
+        await api.post("/auth/logout", { token });
+      }
+    } catch (err) {
+      console.error("Erro ao fazer logout:", err);
+    } finally {
+      setAuthenticated(false);
+      setUser(null);
+      clearSession();
+    }
+  };
+
+  const validateSession = async () => {
+    const token = localStorage.getItem('sessionToken');
+    const storedUser = localStorage.getItem('user');
+    
+    if (token && storedUser) {
+      try {
+        const response = await api.post("/auth/validate", { token });
+        if (response.data.success) {
+          setAuthenticated(true);
+          setUser(response.data.user);
+          setUsername(response.data.user.username);
+        } else {
+          clearSession();
+        }
+      } catch (err) {
+        console.error("Erro ao validar sessão:", err);
+        clearSession();
+      }
+    }
   };
 
   const fetchVideos = async () => {
@@ -95,54 +134,22 @@ function App() {
     }
   };
 
-  const fetchSystemStatus = async () => {
-    try {
-      // Verificar se o usuário tem acesso à área administrativa
-      const adminCheck = await api.get("/admin/check");
-      const isAdmin = adminCheck.data.isAdmin;
-
-      if (isAdmin) {
-        // Buscar status dos serviços
-        const statusResponse = await api.get("/admin/services");
-        setSystemStatus({
-          services: statusResponse.data,
-          isAdmin: true,
-          loading: false,
-        });
-      } else {
-        setSystemStatus({
-          services: [],
-          isAdmin: false,
-          loading: false,
-        });
-      }
-    } catch (err) {
-      console.error("Erro ao verificar status do sistema:", err);
-      setSystemStatus({
-        services: [],
-        isAdmin: false,
-        loading: false,
-        error: "Não foi possível carregar o status do sistema.",
-      });
-    }
+  // ✅ CORRIGIDO: isAdmin baseado apenas no user, não no sucesso da API
+  const isUserAdmin = () => {
+    return user && user.is_admin === true;
   };
 
   useEffect(() => {
-    // Verificar se o utilizador estava previamente autenticado
-    const storedAuth = localStorage.getItem('authenticated');
-    const storedUsername = localStorage.getItem('username');
-    
-    if (storedAuth === 'true' && storedUsername) {
-      setAuthenticated(true);
-      setUsername(storedUsername);
-    }
-    
-    fetchVideos();
-    fetchSystemStatus();
+    validateSession();
   }, []);
 
+  useEffect(() => {
+    if (authenticated) {
+      fetchVideos();
+    }
+  }, [authenticated, user]);
+
   const handleVideoUpload = async (newVideoFilename) => {
-    // Atualiza a lista de vídeos após o upload
     await fetchVideos();
   };
 
@@ -159,7 +166,15 @@ function App() {
                 }
                 onClick={() => setActiveTab("videos")}
               >
-                Vídeos
+                Todos os Vídeos
+              </button>
+              <button
+                className={
+                  activeTab === "my-videos" ? "nav-btn active" : "nav-btn"
+                }
+                onClick={() => setActiveTab("my-videos")}
+              >
+                Meus Vídeos
               </button>
               <button
                 className={
@@ -169,7 +184,8 @@ function App() {
               >
                 Fazer Upload
               </button>
-              {systemStatus.isAdmin && (
+              {/* ✅ CORRIGIDO: Tab sempre visível se for admin */}
+              {isUserAdmin() && (
                 <button
                   className={
                     activeTab === "admin" ? "nav-btn active" : "nav-btn"
@@ -183,7 +199,7 @@ function App() {
                 className="nav-btn logout-btn" 
                 onClick={onLogout}
               >
-                Sair ({username})
+                Sair ({user?.username})
               </button>
             </nav>
           </header>
@@ -195,6 +211,18 @@ function App() {
                 loading={loading}
                 error={error}
                 onRefresh={fetchVideos}
+                showUploader={true}
+              />
+            )}
+
+            {activeTab === "my-videos" && (
+              <VideoList
+                videos={videos.filter(video => video.uploaded_by === user?.username)}
+                loading={loading}
+                error={error}
+                onRefresh={fetchVideos}
+                showUploader={true}
+                title="Meus Vídeos"
               />
             )}
 
@@ -202,17 +230,20 @@ function App() {
               <UploadVideo handleVideoUpload={handleVideoUpload} />
             )}
 
-            {activeTab === "admin" && systemStatus.isAdmin && (
-              <SystemStatus
-                status={systemStatus}
-                onRefresh={fetchSystemStatus}
-              />
+            {/* ✅ CORRIGIDO: Componente sempre renderiza se for admin */}
+            {activeTab === "admin" && isUserAdmin() && (
+              <SystemStatus />
             )}
           </main>
 
           <footer className="app-footer">
             <p>
               UALFlix - Projeto de Arquitetura Avançada de Sistemas - 2024/2025
+            </p>
+            <p>
+              Utilizador: {user?.username} | 
+              {user?.is_admin ? " Administrador" : " Utilizador"} | 
+              Vídeos: {videos.length}
             </p>
           </footer>
         </div>
@@ -256,6 +287,11 @@ function App() {
             </div>
           </form>
           
+          <div className="demo-users">
+            <h3> Utilizadores de Demonstração - Fazer Registo</h3>
+            <p><strong>Admin:</strong> username: admin, password: admin</p>
+          
+          </div>
           
         </div>
       )}

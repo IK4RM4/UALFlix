@@ -1,4 +1,6 @@
-flask
-flask_cors
+Flask
+Flask-Cors
+psycopg2-binary
 prometheus-flask-exporter
-waitress
+pika
+requests

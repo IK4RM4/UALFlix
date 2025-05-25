@@ -1,24 +1,50 @@
 global:
-  scrape_interval: 15s
-  evaluation_interval: 15s
+  scrape_interval: 5s
+  evaluation_interval: 5s
+  external_labels:
+    project: 'ualflix'
+    environment: 'development'
+
+rule_files:
+  - "/etc/prometheus/alert.rules"
 
 scrape_configs:
-  - job_name: 'catalog_service'
-    static_configs:
-      - targets: ['catalog_service:8000']
-
-  - job_name: 'streaming_service'
-    static_configs:
-      - targets: ['streaming_service:8001']
-
-  - job_name: 'video_processor'
-    static_configs:
-      - targets: ['video_processor:9102']
-
   - job_name: 'prometheus'
     static_configs:
       - targets: ['localhost:9090']
+    metrics_path: '/metrics'
+    scrape_interval: 10s
+
+  - job_name: 'admin_service'
+    static_configs:
+      - targets: ['admin_service:8002']
+    metrics_path: '/metrics'
+    scrape_interval: 5s
+    scrape_timeout: 3s
+
+  - job_name: 'ualflix-services'
+    static_configs:
+      - targets: 
+          - 'authentication_service:8000'
+          - 'catalog_service:8000'
+          - 'streaming_service:8001'
+    metrics_path: '/metrics'
+    scrape_interval: 5s
+    scrape_timeout: 3s
 
   - job_name: 'rabbitmq'
     static_configs:
-      - targets: ['queue_service:15672']
+      - targets: ['queue_service:15692']
+    metrics_path: '/metrics'
+    scrape_interval: 10s
+
+  - job_name: 'video_processor'
+    static_configs:
+      - targets: ['video_processor:8000']
+    metrics_path: '/metrics'
+    scrape_interval: 10s
+
+alerting:
+  alertmanagers:
+    - static_configs:
+        - targets: []

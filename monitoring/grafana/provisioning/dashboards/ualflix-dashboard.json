@@ -1,4 +1,602 @@
 {
+  "dashboard": {
+    "id": null,
+    "title": "UALFlix - Sistema de Métricas Automáticas",
+    "tags": ["ualflix", "automatic", "performance"],
+    "style": "dark",
+    "timezone": "browser",
+    "refresh": "30s",
+    "time": {
+      "from": "now-1h",
+      "to": "now"
+    },
+    "panels": [
+      {
+        "id": 1,
+        "title": "🎯 FUNCIONALIDADE 7: Resumo de Performance Automático",
+        "type": "stat",
+        "gridPos": {"h": 8, "w": 24, "x": 0, "y": 0},
+        "targets": [
+          {
+            "expr": "ualflix:performance_score",
+            "legendFormat": "Score de Performance",
+            "refId": "A"
+          },
+          {
+            "expr": "ualflix_system_availability_percent",
+            "legendFormat": "Disponibilidade %",
+            "refId": "B"
+          },
+          {
+            "expr": "ualflix:system_throughput_total",
+            "legendFormat": "Throughput (req/s)",
+            "refId": "C"
+          },
+          {
+            "expr": "ualflix:request_latency_avg_5m * 1000",
+            "legendFormat": "Latência Média (ms)",
+            "refId": "D"
+          }
+        ],
+        "fieldConfig": {
+          "defaults": {
+            "color": {"mode": "palette-classic"},
+            "custom": {
+              "displayMode": "list",
+              "orientation": "horizontal"
+            },
+            "mappings": [],
+            "thresholds": {
+              "steps": [
+                {"color": "green", "value": null},
+                {"color": "red", "value": 80}
+              ]
+            }
+          }
+        },
+        "options": {
+          "reduceOptions": {
+            "values": false,
+            "calcs": ["lastNotNull"],
+            "fields": ""
+          },
+          "orientation": "auto",
+          "textMode": "auto",
+          "colorMode": "value",
+          "graphMode": "area",
+          "justifyMode": "auto"
+        }
+      },
+      {
+        "id": 2,
+        "title": "📊 LATÊNCIA - Métricas Automáticas",
+        "type": "timeseries",
+        "gridPos": {"h": 9, "w": 12, "x": 0, "y": 8},
+        "targets": [
+          {
+            "expr": "ualflix:request_latency_avg_5m * 1000",
+            "legendFormat": "Latência Média (ms)",
+            "refId": "A"
+          },
+          {
+            "expr": "ualflix:request_latency_p95_5m * 1000",
+            "legendFormat": "Latência P95 (ms)",
+            "refId": "B"
+          },
+          {
+            "expr": "ualflix:video_streaming_latency_avg_5m * 1000",
+            "legendFormat": "Latência Streaming (ms)",
+            "refId": "C"
+          }
+        ],
+        "fieldConfig": {
+          "defaults": {
+            "color": {"mode": "palette-classic"},
+            "custom": {
+              "axisLabel": "",
+              "axisPlacement": "auto",
+              "barAlignment": 0,
+              "drawStyle": "line",
+              "fillOpacity": 10,
+              "gradientMode": "none",
+              "hideFrom": {
+                "legend": false,
+                "tooltip": false,
+                "vis": false
+              },
+              "lineInterpolation": "linear",
+              "lineWidth": 1,
+              "pointSize": 5,
+              "scaleDistribution": {"type": "linear"},
+              "showPoints": "never",
+              "spanNulls": false,
+              "stacking": {"group": "A", "mode": "none"},
+              "thresholdsStyle": {"mode": "off"}
+            },
+            "mappings": [],
+            "thresholds": {
+              "steps": [
+                {"color": "green", "value": null},
+                {"color": "yellow", "value": 200},
+                {"color": "red", "value": 500}
+              ]
+            },
+            "unit": "ms"
+          }
+        },
+        "options": {
+          "legend": {"calcs": [], "displayMode": "list", "placement": "bottom"},
+          "tooltip": {"mode": "single", "sort": "none"}
+        }
+      },
+      {
+        "id": 3,
+        "title": "🚀 THROUGHPUT - Métricas Automáticas",
+        "type": "timeseries",
+        "gridPos": {"h": 9, "w": 12, "x": 12, "y": 8},
+        "targets": [
+          {
+            "expr": "ualflix:request_rate_total_5m",
+            "legendFormat": "{{service}} - Requests/s",
+            "refId": "A"
+          },
+          {
+            "expr": "ualflix:data_transfer_rate_5m",
+            "legendFormat": "{{direction}} - Data Rate",
+            "refId": "B"
+          }
+        ],
+        "fieldConfig": {
+          "defaults": {
+            "color": {"mode": "palette-classic"},
+            "custom": {
+              "axisLabel": "",
+              "axisPlacement": "auto",
+              "barAlignment": 0,
+              "drawStyle": "line",
+              "fillOpacity": 10,
+              "gradientMode": "none",
+              "hideFrom": {"legend": false, "tooltip": false, "vis": false},
+              "lineInterpolation": "linear",
+              "lineWidth": 1,
+              "pointSize": 5,
+              "scaleDistribution": {"type": "linear"},
+              "showPoints": "never",
+              "spanNulls": false,
+              "stacking": {"group": "A", "mode": "none"},
+              "thresholdsStyle": {"mode": "off"}
+            },
+            "mappings": [],
+            "thresholds": {
+              "steps": [
+                {"color": "green", "value": null},
+                {"color": "red", "value": 80}
+              ]
+            },
+            "unit": "reqps"
+          }
+        }
+      },
+      {
+        "id": 4,
+        "title": "💾 UTILIZAÇÃO DE RECURSOS - Automática",
+        "type": "timeseries",
+        "gridPos": {"h": 9, "w": 12, "x": 0, "y": 17},
+        "targets": [
+          {
+            "expr": "ualflix:cpu_usage_avg_5m",
+            "legendFormat": "{{service}} - CPU %",
+            "refId": "A"
+          },
+          {
+            "expr": "ualflix:memory_usage_avg_5m",
+            "legendFormat": "{{service}} - Memory %",
+            "refId": "B"
+          },
+          {
+            "expr": "ualflix_system_disk_percent",
+            "legendFormat": "Disk Usage %",
+            "refId": "C"
+          }
+        ],
+        "fieldConfig": {
+          "defaults": {
+            "color": {"mode": "palette-classic"},
+            "custom": {
+              "axisLabel": "",
+              "axisPlacement": "auto",
+              "barAlignment": 0,
+              "drawStyle": "line",
+              "fillOpacity": 10,
+              "gradientMode": "none",
+              "hideFrom": {"legend": false, "tooltip": false, "vis": false},
+              "lineInterpolation": "linear",
+              "lineWidth": 1,
+              "pointSize": 5,
+              "scaleDistribution": {"type": "linear"},
+              "showPoints": "never",
+              "spanNulls": false,
+              "stacking": {"group": "A", "mode": "none"},
+              "thresholdsStyle": {"mode": "line"}
+            },
+            "mappings": [],
+            "max": 100,
+            "min": 0,
+            "thresholds": {
+              "steps": [
+                {"color": "green", "value": null},
+                {"color": "yellow", "value": 70},
+                {"color": "red", "value": 85}
+              ]
+            },
+            "unit": "percent"
+          }
+        }
+      },
+      {
+        "id": 5,
+        "title": "🏗️ FUNCIONALIDADE 2: Métricas de Cluster",
+        "type": "stat",
+        "gridPos": {"h": 9, "w": 12, "x": 12, "y": 17},
+        "targets": [
+          {
+            "expr": "ualflix_cluster_nodes_total",
+            "legendFormat": "Total de Nós",
+            "refId": "A"
+          },
+          {
+            "expr": "ualflix_cluster_nodes_healthy",
+            "legendFormat": "Nós Saudáveis",
+            "refId": "B"
+          },
+          {
+            "expr": "ualflix:cluster_availability",
+            "legendFormat": "Disponibilidade Cluster %",
+            "refId": "C"
+          },
+          {
+            "expr": "ualflix:cluster_coordination_avg_5m * 1000",
+            "legendFormat": "Tempo Coordenação (ms)",
+            "refId": "D"
+          }
+        ],
+        "fieldConfig": {
+          "defaults": {
+            "color": {"mode": "thresholds"},
+            "custom": {
+              "displayMode": "list",
+              "orientation": "horizontal"
+            },
+            "mappings": [],
+            "thresholds": {
+              "steps": [
+                {"color": "green", "value": null},
+                {"color": "yellow", "value": 80},
+                {"color": "red", "value": 90}
+              ]
+            }
+          }
+        },
+        "options": {
+          "reduceOptions": {
+            "values": false,
+            "calcs": ["lastNotNull"],
+            "fields": ""
+          },
+          "orientation": "auto",
+          "textMode": "auto",
+          "colorMode": "value",
+          "graphMode": "area",
+          "justifyMode": "auto"
+        }
+      },
+      {
+        "id": 6,
+        "title": "🔄 FUNCIONALIDADES 5 e 6: Replicação e Serviços",
+        "type": "timeseries",
+        "gridPos": {"h": 9, "w": 12, "x": 0, "y": 26},
+        "targets": [
+          {
+            "expr": "ualflix:total_active_replicas",
+            "legendFormat": "{{service}} - Réplicas Ativas",
+            "refId": "A"
+          },
+          {
+            "expr": "ualflix:replication_health_percent",
+            "legendFormat": "Saúde da Replicação %",
+            "refId": "B"
+          },
+          {
+            "expr": "ualflix:replica_load_distribution",
+            "legendFormat": "{{service}} - Carga por Réplica",
+            "refId": "C"
+          }
+        ],
+        "fieldConfig": {
+          "defaults": {
+            "color": {"mode": "palette-classic"},
+            "custom": {
+              "axisLabel": "",
+              "axisPlacement": "auto",
+              "barAlignment": 0,
+              "drawStyle": "line",
+              "fillOpacity": 10,
+              "gradientMode": "none",
+              "hideFrom": {"legend": false, "tooltip": false, "vis": false},
+              "lineInterpolation": "linear",
+              "lineWidth": 1,
+              "pointSize": 5,
+              "scaleDistribution": {"type": "linear"},
+              "showPoints": "never",
+              "spanNulls": false,
+              "stacking": {"group": "A", "mode": "none"},
+              "thresholdsStyle": {"mode": "off"}
+            },
+            "mappings": [],
+            "thresholds": {
+              "steps": [
+                {"color": "green", "value": null},
+                {"color": "red", "value": 80}
+              ]
+            }
+          }
+        }
+      },
+      {
+        "id": 7,
+        "title": "📈 FUNCIONALIDADE 7: Análise de Tendências Automática",
+        "type": "timeseries",
+        "gridPos": {"h": 9, "w": 12, "x": 12, "y": 26},
+        "targets": [
+          {
+            "expr": "ualflix:cpu_trend_2h_vs_30m",
+            "legendFormat": "Tendência CPU (Δ%)",
+            "refId": "A"
+          },
+          {
+            "expr": "ualflix:memory_trend_2h_vs_30m",
+            "legendFormat": "Tendência Memória (Δ%)",
+            "refId": "B"
+          },
+          {
+            "expr": "ualflix:throughput_trend_2h_vs_30m",
+            "legendFormat": "Tendência Throughput (Δ)",
+            "refId": "C"
+          }
+        ],
+        "fieldConfig": {
+          "defaults": {
+            "color": {"mode": "palette-classic"},
+            "custom": {
+              "axisLabel": "",
+              "axisPlacement": "auto",
+              "barAlignment": 0,
+              "drawStyle": "line",
+              "fillOpacity": 20,
+              "gradientMode": "opacity",
+              "hideFrom": {"legend": false, "tooltip": false, "vis": false},
+              "lineInterpolation": "smooth",
+              "lineWidth": 2,
+              "pointSize": 5,
+              "scaleDistribution": {"type": "linear"},
+              "showPoints": "never",
+              "spanNulls": false,
+              "stacking": {"group": "A", "mode": "none"},
+              "thresholdsStyle": {"mode": "line"}
+            },
+            "mappings": [],
+            "thresholds": {
+              "steps": [
+                {"color": "green", "value": null},
+                {"color": "yellow", "value": 10},
+                {"color": "red", "value": 20}
+              ]
+            }
+          }
+        }
+      },
+      {
+        "id": 8,
+        "title": "🚨 Alertas Automáticos e Status de Serviços",
+        "type": "table",
+        "gridPos": {"h": 8, "w": 24, "x": 0, "y": 35},
+        "targets": [
+          {
+            "expr": "up{job=\"ualflix-services\"}",
+            "legendFormat": "{{instance}}",
+            "refId": "A",
+            "format": "table",
+            "instant": true
+          },
+          {
+            "expr": "ualflix:performance_degradation_detected",
+            "legendFormat": "Performance Degradation",
+            "refId": "B",
+            "format": "table",
+            "instant": true
+          },
+          {
+            "expr": "ualflix:system_overload_detected",
+            "legendFormat": "System Overload",
+            "refId": "C",
+            "format": "table",
+            "instant": true
+          },
+          {
+            "expr": "ualflix:cluster_instability_detected",
+            "legendFormat": "Cluster Instability",
+            "refId": "D",
+            "format": "table",
+            "instant": true
+          }
+        ],
+        "fieldConfig": {
+          "defaults": {
+            "color": {"mode": "thresholds"},
+            "custom": {
+              "align": "auto",
+              "displayMode": "auto"
+            },
+            "mappings": [
+              {
+                "options": {
+                  "0": {"color": "red", "index": 0, "text": "❌ OFFLINE"},
+                  "1": {"color": "green", "index": 1, "text": "✅ ONLINE"}
+                },
+                "type": "value"
+              }
+            ],
+            "thresholds": {
+              "steps": [
+                {"color": "green", "value": null},
+                {"color": "red", "value": 0.5}
+              ]
+            }
+          }
+        },
+        "options": {
+          "showHeader": true
+        },
+        "transformations": [
+          {
+            "id": "organize",
+            "options": {
+              "excludeByName": {
+                "Time": true,
+                "__name__": true
+              },
+              "indexByName": {},
+              "renameByName": {
+                "instance": "Serviço",
+                "Value": "Status"
+              }
+            }
+          }
+        ]
+      },
+      {
+        "id": 9,
+        "title": "☁️ FUNCIONALIDADE 4: Métricas Cloud e Escalabilidade",
+        "type": "stat",
+        "gridPos": {"h": 6, "w": 24, "x": 0, "y": 43},
+        "targets": [
+          {
+            "expr": "ualflix:scaling_recommendation",
+            "legendFormat": "Recomendação de Escala",
+            "refId": "A"
+          },
+          {
+            "expr": "ualflix:resource_efficiency",
+            "legendFormat": "Eficiência de Recursos",
+            "refId": "B"
+          },
+          {
+            "expr": "ualflix:load_balancer_health",
+            "legendFormat": "Saúde Load Balancer",
+            "refId": "C"
+          }
+        ],
+        "fieldConfig": {
+          "defaults": {
+            "color": {"mode": "thresholds"},
+            "custom": {
+              "displayMode": "list",
+              "orientation": "horizontal"
+            },
+            "mappings": [
+              {
+                "options": {
+                  "0": {"color": "green", "index": 0, "text": "✅ OK"},
+                  "1": {"color": "red", "index": 1, "text": "⚠️ SCALE NEEDED"}
+                },
+                "type": "value"
+              }
+            ],
+            "thresholds": {
+              "steps": [
+                {"color": "green", "value": null},
+                {"color": "yellow", "value": 0.5},
+                {"color": "red", "value": 1}
+              ]
+            }
+          }
+        },
+        "options": {
+          "reduceOptions": {
+            "values": false,
+            "calcs": ["lastNotNull"],
+            "fields": ""
+          },
+          "orientation": "auto",
+          "textMode": "value_and_name",
+          "colorMode": "background",
+          "graphMode": "none",
+          "justifyMode": "auto"
+        }
+      },
+      {
+        "id": 10,
+        "title": "🎬 UALFlix - Métricas Específicas da Aplicação",
+        "type": "timeseries",
+        "gridPos": {"h": 8, "w": 24, "x": 0, "y": 49},
+        "targets": [
+          {
+            "expr": "ualflix_active_users_count",
+            "legendFormat": "Usuários Ativos",
+            "refId": "A"
+          },
+          {
+            "expr": "ualflix_concurrent_streams",
+            "legendFormat": "Streams Simultâneos",
+            "refId": "B"
+          },
+          {
+            "expr": "ualflix_video_catalog_total",
+            "legendFormat": "Total de Vídeos",
+            "refId": "C"
+          },
+          {
+            "expr": "ualflix_queue_size",
+            "legendFormat": "{{queue_name}} - Fila",
+            "refId": "D"
+          }
+        ],
+        "fieldConfig": {
+          "defaults": {
+            "color": {"mode": "palette-classic"},
+            "custom": {
+              "axisLabel": "",
+              "axisPlacement": "auto",
+              "barAlignment": 0,
+              "drawStyle": "line",
+              "fillOpacity": 10,
+              "gradientMode": "none",
+              "hideFrom": {"legend": false, "tooltip": false, "vis": false},
+              "lineInterpolation": "linear",
+              "lineWidth": 1,
+              "pointSize": 5,
+              "scaleDistribution": {"type": "linear"},
+              "showPoints": "never",
+              "spanNulls": false,
+              "stacking": {"group": "A", "mode": "none"},
+              "thresholdsStyle": {"mode": "off"}
+            },
+            "mappings": [],
+            "thresholds": {
+              "steps": [
+                {"color": "green", "value": null},
+                {"color": "red", "value": 80}
+              ]
+            },
+            "unit": "short"
+          }
+        },
+        "options": {
+          "legend": {"calcs": [], "displayMode": "list", "placement": "bottom"},
+          "tooltip": {"mode": "single", "sort": "none"}
+        }
+      }
+    ],
     "annotations": {
       "list": [
         {
@@ -15,113 +613,10 @@
     "editable": true,
     "gnetId": null,
     "graphTooltip": 0,
-    "id": 1,
     "links": [],
-    "panels": [
-      {
-        "aliasColors": {},
-        "bars": false,
-        "dashLength": 10,
-        "dashes": false,
-        "datasource": "Prometheus",
-        "fill": 1,
-        "fillGradient": 0,
-        "gridPos": {
-          "h": 9,
-          "w": 12,
-          "x": 0,
-          "y": 0
-        },
-        "hiddenSeries": false,
-        "id": 2,
-        "legend": {
-          "avg": false,
-          "current": false,
-          "max": false,
-          "min": false,
-          "show": true,
-          "total": false,
-          "values": false
-        },
-        "lines": true,
-        "linewidth": 1,
-        "nullPointMode": "null",
-        "options": {
-          "dataLinks": []
-        },
-        "percentage": false,
-        "pointradius": 2,
-        "points": false,
-        "renderer": "flot",
-        "seriesOverrides": [],
-        "spaceLength": 10,
-        "stack": false,
-        "steppedLine": false,
-        "targets": [
-          {
-            "expr": "up",
-            "legendFormat": "{{job}}",
-            "refId": "A"
-          }
-        ],
-        "thresholds": [],
-        "timeFrom": null,
-        "timeRegions": [],
-        "timeShift": null,
-        "title": "Service Status",
-        "tooltip": {
-          "shared": true,
-          "sort": 0,
-          "value_type": "individual"
-        },
-        "type": "graph",
-        "xaxis": {
-          "buckets": null,
-          "mode": "time",
-          "name": null,
-          "show": true,
-          "values": []
-        },
-        "yaxes": [
-          {
-            "format": "short",
-            "label": null,
-            "logBase": 1,
-            "max": null,
-            "min": null,
-            "show": true
-          },
-          {
-            "format": "short",
-            "label": null,
-            "logBase": 1,
-            "max": null,
-            "min": null,
-            "show": true
-          }
-        ],
-        "yaxis": {
-          "align": false,
-          "alignLevel": null
-        }
-      }
-    ],
-    "schemaVersion": 22,
-    "style": "dark",
-    "tags": [],
-    "templating": {
-      "list": []
-    },
-    "time": {
-      "from": "now-6h",
-      "to": "now"
-    },
-    "timepicker": {},
-    "timezone": "",
-    "title": "UALFlix Dashboard",
-    "uid": "UALFlixDashboard",
-    "variables": {
-      "list": []
-    },
-    "version": 1
+    "liveNow": false,
+    "schemaVersion": 30,
+    "version": 1,
+    "weekStart": ""
+  }
 }

@@ -1,92 +1,39 @@
 groups:
-- name: UALFlix Alerts
-  rules:
-  # Alertas de serviços indisponíveis
-  - alert: ServiceDown
-    expr: up == 0
-    for: 1m
-    labels:
-      severity: critical
-    annotations:
-      summary: "Serviço indisponível: {{ $labels.job }}"
-      description: "O serviço {{ $labels.job }} na instância {{ $labels.instance }} está indisponível há mais de 1 minuto."
+  - name: ualflix_alerts
+    interval: 10s
+    rules:
+      - alert: ServiceDown
+        expr: up == 0
+        for: 10s
+        labels:
+          severity: critical
+        annotations:
+          summary: "Service {{ $labels.job }} is down"
+          description: "Service {{ $labels.job }} has been down for more than 10 seconds"
 
-  # Alerta para uso elevado de CPU
-  - alert: HighCPULoad
-    expr: 100 - (avg by(instance) (irate(node_cpu_seconds_total{mode="idle"}[5m])) * 100) > 80
-    for: 5m
-    labels:
-      severity: warning
-    annotations:
-      summary: "Uso elevado de CPU: {{ $labels.instance }}"
-      description: "O uso de CPU está acima de 80% na instância {{ $labels.instance }} há mais de 5 minutos."
+      - alert: HighCPUUsage
+        expr: ualflix_system_cpu_percent > 80
+        for: 2m
+        labels:
+          severity: warning
+        annotations:
+          summary: "High CPU usage on {{ $labels.service }}"
+          description: "CPU usage is {{ $value }}% on {{ $labels.service }}"
 
-  # Alerta para baixa memória disponível
-  - alert: LowMemory
-    expr: (node_memory_MemAvailable_bytes / node_memory_MemTotal_bytes) * 100 < 20
-    for: 5m
-    labels:
-      severity: warning
-    annotations:
-      summary: "Memória baixa: {{ $labels.instance }}"
-      description: "A instância {{ $labels.instance }} tem menos de 20% de memória disponível há mais de 5 minutos."
+      - alert: HighMemoryUsage
+        expr: ualflix_system_memory_percent > 85
+        for: 2m
+        labels:
+          severity: warning
+        annotations:
+          summary: "High memory usage on {{ $labels.service }}"
+          description: "Memory usage is {{ $value }}% on {{ $labels.service }}"
 
-  # Alerta para alto tempo de resposta
-  - alert: HighResponseTime
-    expr: histogram_quantile(0.95, sum(rate(request_latency_seconds_bucket[5m])) by (le, job)) > 1
-    for: 2m
-    labels:
-      severity: warning
-    annotations:
-      summary: "Tempo de resposta elevado: {{ $labels.job }}"
-      description: "O serviço {{ $labels.job }} está apresentando tempo de resposta acima de 1 segundo para 95% das requisições."
-
-  # Alerta para disco quase cheio
-  - alert: DiskAlmostFull
-    expr: (node_filesystem_avail_bytes / node_filesystem_size_bytes) * 100 < 10
-    for: 5m
-    labels:
-      severity: warning
-    annotations:
-      summary: "Disco quase cheio: {{ $labels.instance }}"
-      description: "O sistema de arquivos {{ $labels.mountpoint }} na instância {{ $labels.instance }} tem menos de 10% de espaço livre."
-
-  # Alerta para disco cheio
-  - alert: DiskFull
-    expr: (node_filesystem_avail_bytes / node_filesystem_size_bytes) * 100 < 5
-    for: 5m
-    labels:
-      severity: critical
-    annotations:
-      summary: "Disco cheio: {{ $labels.instance }}"
-      description: "O sistema de arquivos {{ $labels.mountpoint }} na instância {{ $labels.instance }} tem menos de 5% de espaço livre."
-
-  # Alerta para erros no log
-  - alert: HighErrorRate
-    expr: sum(rate(stream_errors_total[5m])) / sum(rate(stream_total[5m])) > 0.05
-    for: 2m
-    labels:
-      severity: warning
-    annotations:
-      summary: "Alta taxa de erros no streaming"
-      description: "O serviço de streaming está apresentando mais de 5% de erros nos últimos 5 minutos."
-
-  # Alerta para banco de dados indisponível
-  - alert: PostgresDown
-    expr: pg_up == 0
-    for: 1m
-    labels:
-      severity: critical
-    annotations:
-      summary: "PostgreSQL indisponível"
-      description: "O PostgreSQL na instância {{ $labels.instance }} está indisponível há mais de 1 minuto."
-
-  # Alerta para tamanho da fila de processamento de vídeos
-  - alert: VideoProcessingQueueLarge
-    expr: video_processing_queue_size > 10
-    for: 10m
-    labels:
-      severity: warning
-    annotations:
-      summary: "Fila de processamento de vídeos longa"
-      description: "A fila de processamento de vídeos tem mais de 10 itens há mais de 10 minutos."
+      - alert: LowSystemAvailability
+        expr: ualflix_system_availability_percent < 90
+        for: 1m
+        labels:
+          severity: critical
+        annotations:
+          summary: "Low system availability"
+          description: "System availability is {{ $value }}%"

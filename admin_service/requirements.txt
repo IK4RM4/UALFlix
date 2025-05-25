@@ -1,0 +1,7 @@
+flask
+flask-cors
+requests
+psutil
+docker
+prometheus-flask-exporter
+prometheus-client

@@ -1,3 +1,6 @@
+# UALFlix - Docker Compose Final
+# Implementa todas as funcionalidades do PDF
+
 services:
   ualflix_db:
     image: postgres:13
@@ -16,23 +19,30 @@ services:
       timeout: 10s
       retries: 5
 
-  catalog_service:
-    build: ./catalog_service
-    depends_on:
-      ualflix_db:
-        condition: service_healthy
-      queue_service:
-        condition: service_started
+  queue_service:
+    image: rabbitmq:3-management
     networks:
       - ualflix_network
-    volumes:
-      - video_storage:/videos
+    ports:
+      - "5672:5672"
+      - "15672:15672"
+      - "15692:15692"  # Prometheus metrics
+    environment:
+      - RABBITMQ_DEFAULT_USER=ualflix
+      - RABBITMQ_DEFAULT_PASS=ualflix_password
+      - RABBITMQ_ENABLED_PLUGINS_FILE=/etc/rabbitmq/enabled_plugins
+    command: >
+      bash -c "
+        echo '[rabbitmq_management,rabbitmq_prometheus].' > /etc/rabbitmq/enabled_plugins &&
+        rabbitmq-server
+      "
     healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      test: rabbitmq-diagnostics -q ping
       interval: 30s
-      timeout: 10s
+      timeout: 30s
       retries: 3
 
+  # Funcionalidade 6: Authentication Service com scaling
   authentication_service:
     build: ./authentication_service
     depends_on:
@@ -40,12 +50,40 @@ services:
         condition: service_healthy
     networks:
       - ualflix_network
+    environment:
+      - SECRET_KEY=ualflix-secret-key-change-in-production
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
       interval: 30s
       timeout: 10s
       retries: 3
 
+  # Funcionalidade 6: Catalog Service com scaling  
+  catalog_service:
+    build: ./catalog_service
+    depends_on:
+      ualflix_db:
+        condition: service_healthy
+      queue_service:
+        condition: service_healthy
+      authentication_service:
+        condition: service_healthy
+    networks:
+      - ualflix_network
+    volumes:
+      - video_storage:/videos
+    environment:
+      - QUEUE_HOST=queue_service
+      - QUEUE_USER=ualflix
+      - QUEUE_PASSWORD=ualflix_password
+      - AUTH_SERVICE_URL=http://authentication_service:8000
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  # Funcionalidade 6: Streaming Service com scaling
   streaming_service:
     build: ./streaming_service
     volumes:
@@ -62,26 +100,30 @@ services:
     build: ./video_processor
     depends_on:
       queue_service:
-        condition: service_started
+        condition: service_healthy
     networks:
       - ualflix_network
     volumes:
       - video_storage:/videos
+    environment:
+      - QUEUE_HOST=queue_service
+      - QUEUE_USER=ualflix
+      - QUEUE_PASSWORD=ualflix_password
 
-  queue_service:
-    image: rabbitmq:3-management
+  # Funcionalidade 7: Admin Service com métricas automáticas
+  admin_service:
+    build: ./admin_service
+    depends_on:
+      - authentication_service
+      - catalog_service
+      - streaming_service
+      - video_processor
     networks:
       - ualflix_network
-    ports:
-      - "5672:5672"
-      - "15672:15672"
-    environment:
-      - RABBITMQ_DEFAULT_USER=ualflix
-      - RABBITMQ_DEFAULT_PASS=ualflix_password
     healthcheck:
-      test: rabbitmq-diagnostics -q ping
+      test: ["CMD", "curl", "-f", "http://localhost:8002/health"]
       interval: 30s
-      timeout: 30s
+      timeout: 10s
       retries: 3
 
   frontend:
@@ -94,6 +136,30 @@ services:
       timeout: 10s
       retries: 3
 
+  # Funcionalidade 6: Load Balancer HAProxy (opcional)
+  load_balancer:
+    image: haproxy:latest
+    networks:
+      - ualflix_network
+    ports:
+      - "8090:8090"  # Main load balancer
+      - "8091:8091"  # Prometheus metrics
+    volumes:
+      - ./haproxy/haproxy.cfg:/usr/local/etc/haproxy/haproxy.cfg:ro
+    depends_on:
+      - authentication_service
+      - catalog_service
+      - streaming_service
+      - admin_service
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8091/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+    profiles:
+      - load-balancer  # Perfil opcional
+
+  # Proxy principal (mantém compatibilidade)
   nginx:
     image: nginx:latest
     ports:
@@ -104,20 +170,21 @@ services:
     depends_on:
       frontend:
         condition: service_healthy
-      catalog_service:
+      prometheus:
         condition: service_healthy
-      authentication_service:
-        condition: service_healthy
-      streaming_service:
+      grafana:
         condition: service_healthy
     networks:
       - ualflix_network
     restart: unless-stopped
 
+  # Funcionalidade 7: Prometheus com configurações melhoradas
   prometheus:
     image: prom/prometheus:latest
     volumes:
       - ./monitoring/prometheus.yml:/etc/prometheus/prometheus.yml
+      - ./monitoring/alert.rules:/etc/prometheus/alert.rules
+      - prometheus_data:/prometheus
     ports:
       - "9090:9090"
     networks:
@@ -125,27 +192,96 @@ services:
     depends_on:
       - catalog_service
       - streaming_service
+      - video_processor
+      - admin_service
+    command:
+      - '--config.file=/etc/prometheus/prometheus.yml'
+      - '--storage.tsdb.path=/prometheus'
+      - '--web.console.libraries=/etc/prometheus/console_libraries'
+      - '--web.console.templates=/etc/prometheus/consoles'
+      - '--storage.tsdb.retention.time=200h'
+      - '--web.enable-lifecycle'
+      - '--web.enable-admin-api'
+      - '--query.max-concurrency=20'
+      - '--query.timeout=2m'
+    healthcheck:
+      test: ["CMD-SHELL", "wget --no-verbose --tries=1 --spider http://localhost:9090/-/healthy || exit 1"]
+      interval: 15s
+      timeout: 10s
+      retries: 3
 
+  # Funcionalidade 7: Grafana com dashboards automáticos
   grafana:
     image: grafana/grafana:latest
     ports:
       - "4000:4000"
     volumes:
       - grafana_data:/var/lib/grafana
-      - ./monitoring/grafana/provisioning:/etc/grafana/provisioning
     networks:
       - ualflix_network
     depends_on:
-      - prometheus
+      prometheus:
+        condition: service_healthy
     environment:
       - GF_SECURITY_ADMIN_USER=admin
       - GF_SECURITY_ADMIN_PASSWORD=admin
       - GF_SERVER_HTTP_PORT=4000
+    healthcheck:
+      test: ["CMD-SHELL", "curl -f http://localhost:4000/api/health || exit 1"]
+      interval: 15s
+      timeout: 10s
+      retries: 3
+
+  # Funcionalidade 2: Service Discovery Consul (opcional)
+  consul:
+    image: consul:latest
+    networks:
+      - ualflix_network
+    ports:
+      - "8500:8500"
+    command: >
+      consul agent 
+      -server 
+      -ui 
+      -node=ualflix-consul-1 
+      -bootstrap-expect=1 
+      -client=0.0.0.0 
+      -data-dir=/consul/data
+    volumes:
+      - consul_data:/consul/data
+    healthcheck:
+      test: ["CMD", "consul", "members"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+    profiles:
+      - cluster  # Perfil opcional
+
+  # Funcionalidade 5: Cache Redis para replicação de dados (opcional)
+  redis_cache:
+    image: redis:alpine
+    networks:
+      - ualflix_network
+    ports:
+      - "6379:6379"
+    command: redis-server --appendonly yes --maxmemory 256mb --maxmemory-policy allkeys-lru
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+    profiles:
+      - cache  # Perfil opcional
 
 volumes:
   db_data:
   video_storage:
   grafana_data:
+  prometheus_data:
+  consul_data:
+  redis_data:
 
 networks:
   ualflix_network:

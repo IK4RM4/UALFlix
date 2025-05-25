@@ -1,8 +1,13 @@
-import React, { useEffect, useState } from 'react';
-import api from './api';
-import './VideoList.css';
+import React, { useEffect, useState } from "react";
+import api from "./api";
+import "./VideoList.css";
 
-function VideoList({ videos: propVideos, loading: propLoading, error: propError, onRefresh }) {
+function VideoList({
+  videos: propVideos,
+  loading: propLoading,
+  error: propError,
+  onRefresh,
+}) {
   const [videos, setVideos] = useState(propVideos || []);
   const [loading, setLoading] = useState(propLoading || true);
   const [error, setError] = useState(propError || null);
@@ -18,12 +23,14 @@ function VideoList({ videos: propVideos, loading: propLoading, error: propError,
     if (!onRefresh) {
       setLoading(true);
       try {
-        const response = await api.get('/videos');
+        const response = await api.get("/videos");
         setVideos(response.data);
         setError(null);
       } catch (error) {
-        console.error('Erro ao buscar vídeos:', error);
-        setError('Não foi possível carregar os vídeos. Tente novamente mais tarde.');
+        console.error("Erro ao buscar vídeos:", error);
+        setError(
+          "Não foi possível carregar os vídeos. Tente novamente mais tarde."
+        );
       } finally {
         setLoading(false);
       }
@@ -76,11 +83,17 @@ function VideoList({ videos: propVideos, loading: propLoading, error: propError,
       </div>
 
       {videos.length === 0 ? (
-        <p className="no-videos">Nenhum vídeo disponível. Faça upload do seu primeiro vídeo!</p>
+        <p className="no-videos">
+          Nenhum vídeo disponível. Faça upload do seu primeiro vídeo!
+        </p>
       ) : (
         <div className="video-grid">
           {videos.map((video) => (
-            <div key={video.id} className="video-card" onClick={() => handleVideoSelect(video)}>
+            <div
+              key={video.id}
+              className="video-card"
+              onClick={() => handleVideoSelect(video)}
+            >
               <div className="video-thumbnail">
                 <video preload="metadata">
                   <source src={video.url} type="video/mp4" />
@@ -102,7 +115,9 @@ function VideoList({ videos: propVideos, loading: propLoading, error: propError,
           <div className="modal-content">
             <div className="modal-header">
               <h3>{selectedVideo.title}</h3>
-              <button className="close-btn" onClick={handleCloseModal}>×</button>
+              <button className="close-btn" onClick={handleCloseModal}>
+                ×
+              </button>
             </div>
             <div className="video-player">
               <video controls autoPlay>
@@ -116,6 +131,8 @@ function VideoList({ videos: propVideos, loading: propLoading, error: propError,
           </div>
         </div>
       )}
+
+      
     </div>
   );
 }

@@ -1,33 +1,54 @@
-from flask import Flask, request, jsonify
+from flask import Flask, request, jsonify, session
 from flask_cors import CORS
+from prometheus_flask_exporter import PrometheusMetrics
 from db import get_db_connection
 import os
 import time
 import logging
 import json
 import bcrypt
+import uuid
 from werkzeug.security import generate_password_hash, check_password_hash
+from datetime import datetime, timedelta
 
 # Configuração de logging
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 app = Flask(__name__)
+app.secret_key = os.environ.get('SECRET_KEY', 'ualflix-secret-key-change-in-production')
+
+# Configurar métricas Prometheus
+metrics = PrometheusMetrics(app)
+
 CORS(
     app,
     resources={
         r"/*": {
-            "origins": ["http://localhost", "http://localhost:3000", "http://127.0.0.1:3000"],
+            "origins": ["http://localhost", "http://localhost:3000", "http://127.0.0.1:3000", "http://localhost:8080"],
             "methods": ["GET", "POST", "OPTIONS"],
-            "allow_headers": ["Content-Type", "Authorization"],
+            "allow_headers": ["Content-Type", "Authorization", "X-Session-Token"],
+            "supports_credentials": True
         }
     },
 )
 
+# Armazenamento simples de sessões em memória (em produção usar Redis)
+active_sessions = {}
+
+def generate_session_token():
+    return str(uuid.uuid4())
+
+def get_user_from_token(token):
+    """Retorna informações do usuário baseado no token de sessão."""
+    session_data = active_sessions.get(token)
+    if session_data and session_data['expires'] > datetime.now():
+        return session_data['user']
+    return None
+
 @app.route("/register", methods=["POST"])
 def register():
     try:
-        # CORREÇÃO: usar request.get_json() em vez de request.get_json
         data = request.get_json()
         
         if not data:
@@ -44,7 +65,7 @@ def register():
                 400,
             )
 
-         # NOVA LÓGICA: Se o username for "admin", tornar automaticamente admin
+        # Se o username for "admin", tornar automaticamente admin
         is_admin = True if username.lower() == "admin" else False
 
         # Hash the password
@@ -60,20 +81,38 @@ def register():
             conn.close()
             return jsonify({"success": False, "error": "Username already exists"}), 400
 
-        # Insert new user with admin logic
+        # Insert new user
         cur.execute(
-            "INSERT INTO users (username, password, is_admin) VALUES (%s, %s, %s)",
+            "INSERT INTO users (username, password, is_admin) VALUES (%s, %s, %s) RETURNING id",
             (username, hashed_password, is_admin),
         )
+        user_id = cur.fetchone()[0]
         conn.commit()
         cur.close()
         conn.close()
 
+        # Criar sessão
+        token = generate_session_token()
+        active_sessions[token] = {
+            'user': {
+                'id': user_id,
+                'username': username,
+                'is_admin': is_admin
+            },
+            'expires': datetime.now() + timedelta(hours=24)
+        }
+
         logger.info(f"User {username} registered successfully")
-        return (
-            jsonify({"success": True, "message": "User registered successfully"}),
-            201,
-        )
+        return jsonify({
+            "success": True, 
+            "message": "User registered successfully",
+            "token": token,
+            "user": {
+                "id": user_id,
+                "username": username,
+                "is_admin": is_admin
+            }
+        }), 201
 
     except Exception as e:
         logger.error(f"Error in register: {e}")
@@ -103,7 +142,7 @@ def login():
         cur = conn.cursor()
 
         # Get user from database
-        cur.execute("SELECT id, password FROM users WHERE username = %s", (username,))
+        cur.execute("SELECT id, password, is_admin FROM users WHERE username = %s", (username,))
         user = cur.fetchone()
         cur.close()
         conn.close()
@@ -116,8 +155,28 @@ def login():
 
         # Check password
         if check_password_hash(user[1], password):
+            # Criar sessão
+            token = generate_session_token()
+            active_sessions[token] = {
+                'user': {
+                    'id': user[0],
+                    'username': username,
+                    'is_admin': user[2]
+                },
+                'expires': datetime.now() + timedelta(hours=24)
+            }
+
             logger.info(f"User {username} logged in successfully")
-            return jsonify({"success": True, "message": "Login successful"}), 200
+            return jsonify({
+                "success": True, 
+                "message": "Login successful",
+                "token": token,
+                "user": {
+                    "id": user[0],
+                    "username": username,
+                    "is_admin": user[2]
+                }
+            }), 200
         else:
             return (
                 jsonify({"success": False, "error": "Invalid username or password"}),
@@ -128,6 +187,44 @@ def login():
         logger.error(f"Error in login: {e}")
         return jsonify({"success": False, "error": "Internal server error"}), 500
 
+@app.route("/validate", methods=["POST"])
+def validate_session():
+    """Valida token de sessão e retorna informações do usuário."""
+    try:
+        data = request.get_json()
+        token = data.get("token")
+        
+        if not token:
+            return jsonify({"success": False, "error": "Token required"}), 400
+        
+        user = get_user_from_token(token)
+        if user:
+            return jsonify({
+                "success": True,
+                "user": user
+            }), 200
+        else:
+            return jsonify({"success": False, "error": "Invalid or expired token"}), 401
+            
+    except Exception as e:
+        logger.error(f"Error in validate: {e}")
+        return jsonify({"success": False, "error": "Internal server error"}), 500
+
+@app.route("/logout", methods=["POST"])
+def logout():
+    """Remove sessão ativa."""
+    try:
+        data = request.get_json()
+        token = data.get("token")
+        
+        if token and token in active_sessions:
+            del active_sessions[token]
+        
+        return jsonify({"success": True, "message": "Logged out successfully"}), 200
+        
+    except Exception as e:
+        logger.error(f"Error in logout: {e}")
+        return jsonify({"success": False, "error": "Internal server error"}), 500
 
 @app.route("/health", methods=["GET"])
 def health_check():

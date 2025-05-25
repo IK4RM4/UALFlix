@@ -21,9 +21,10 @@ function UploadVideo({ handleVideoUpload }) {
       return;
     }
 
-    // Verifica tamanho do arquivo (max 100MB para este exemplo)
-    if (file.size > 100 * 1024 * 1024) {
-      setError('O arquivo é muito grande. Tamanho máximo: 100MB.');
+    // Verifica tamanho do arquivo (max 1GB)
+    const maxSize = 1024 * 1024 * 1024; // 1GB em bytes
+    if (file.size > maxSize) {
+      setError('O arquivo é muito grande. Tamanho máximo: 1GB.');
       return;
     }
 
@@ -51,7 +52,8 @@ function UploadVideo({ handleVideoUpload }) {
             (progressEvent.loaded * 100) / progressEvent.total
           );
           setProgress(percentCompleted);
-        }
+        },
+        timeout: 300000 // 5 minutos timeout para uploads grandes
       });
 
       setSuccess(true);
@@ -74,6 +76,14 @@ function UploadVideo({ handleVideoUpload }) {
     } finally {
       setUploading(false);
     }
+  };
+
+  const formatFileSize = (bytes) => {
+    if (bytes === 0) return '0 Bytes';
+    const k = 1024;
+    const sizes = ['Bytes', 'KB', 'MB', 'GB'];
+    const i = Math.floor(Math.log(bytes) / Math.log(k));
+    return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i];
   };
 
   return (
@@ -129,14 +139,23 @@ function UploadVideo({ handleVideoUpload }) {
             disabled={uploading}
           />
           <small className="file-hint">
-            Formatos suportados: MP4, WebM, AVI, MOV. Tamanho máximo: 100MB.
+            Formatos suportados: MP4, WebM, AVI, MOV, MKV. Tamanho máximo: 1GB.
+            {file && (
+              <span className="file-info">
+                <br />Arquivo selecionado: {file.name} ({formatFileSize(file.size)})
+              </span>
+            )}
           </small>
         </div>
         
         {uploading && (
           <div className="progress-container">
-            <div className="progress-bar" style={{ width: `${progress}%` }}>
-              {progress}%
+            <div className="progress-text">
+              Enviando vídeo... {progress}% ({file ? formatFileSize(file.size) : ''})
+            </div>
+            <div className="progress-bar-container">
+              <div className="progress-bar" style={{ width: `${progress}%` }}>
+              </div>
             </div>
           </div>
         )}
@@ -146,7 +165,7 @@ function UploadVideo({ handleVideoUpload }) {
           className="submit-btn"
           disabled={uploading}
         >
-          {uploading ? 'Enviando...' : 'Fazer Upload'}
+          {uploading ? `Enviando... ${progress}%` : 'Fazer Upload'}
         </button>
       </form>
     </div>

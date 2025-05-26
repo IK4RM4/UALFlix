@@ -1,32 +1,100 @@
-# UALFlix - Docker Compose Final
-# Implementa todas as funcionalidades do PDF
+# UALFlix - Docker Compose CORRIGIDO - Problema de Permissões PostgreSQL
 
 services:
-  ualflix_db:
+  # ================================================================
+  # FUNCIONALIDADE 5: DATABASE MASTER-SLAVE REPLICATION
+  # ================================================================
+  
+  # DATABASE MASTER - Principal para escritas
+  ualflix_db_master:
     image: postgres:13
+    container_name: ualflix_db_master
     environment:
+      POSTGRES_DB: ualflix
       POSTGRES_USER: postgres
       POSTGRES_PASSWORD: password
-      POSTGRES_DB: ualflix
+      POSTGRES_INITDB_ARGS: "--auth-host=md5"
+    volumes:
+      - db_master_data:/var/lib/postgresql/data
+      - ./database/init_master.sql:/docker-entrypoint-initdb.d/01-init.sql
+    ports:
+      - "5432:5432"
     networks:
       - ualflix_network
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d ualflix"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+    restart: unless-stopped
+
+  # DATABASE SLAVE - Réplica para leituras
+  ualflix_db_slave:
+    image: postgres:13
+    container_name: ualflix_db_slave
+    environment:
+      POSTGRES_DB: ualflix
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: password
+      PGUSER: postgres
+      PGPASSWORD: password
     volumes:
-      - db_data:/var/lib/postgresql/data
-      - ./db_init.sql:/docker-entrypoint-initdb.d/db_init.sql
+      - db_slave_data:/var/lib/postgresql/data
+      - ./database/setup_slave.sh:/docker-entrypoint-initdb.d/setup_slave.sh
+    entrypoint: ["/bin/bash", "/docker-entrypoint-initdb.d/setup_slave.sh"]
+    ports:
+      - "5433:5432"
+    networks:
+      - ualflix_network
+    depends_on:
+      ualflix_db_master:
+        condition: service_healthy
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    restart: unless-stopped
+
+  # DATABASE MANAGER - Gestão de replicação
+  database_manager:
+    build: ./database_manager
+    container_name: ualflix_db_manager
+    environment:
+      - DB_MASTER_HOST=ualflix_db_master
+      - DB_SLAVE_HOST=ualflix_db_slave
+      - DB_NAME=ualflix
+      - DB_USER=postgres
+      - DB_PASSWORD=password
+    ports:
+      - "5005:5000"
+    networks:
+      - ualflix_network
+    depends_on:
+      ualflix_db_master:
+        condition: service_healthy
+      ualflix_db_slave:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:5000/health"]
       interval: 30s
       timeout: 10s
-      retries: 5
+      retries: 3
+    restart: unless-stopped
 
+  # ================================================================
+  # MESSAGING QUEUE
+  # ================================================================
+  
   queue_service:
     image: rabbitmq:3-management
+    container_name: ualflix_queue
     networks:
       - ualflix_network
     ports:
       - "5672:5672"
       - "15672:15672"
-      - "15692:15692"  # Prometheus metrics
+      - "15692:15692"
     environment:
       - RABBITMQ_DEFAULT_USER=ualflix
       - RABBITMQ_DEFAULT_PASS=ualflix_password
@@ -41,51 +109,71 @@ services:
       interval: 30s
       timeout: 30s
       retries: 3
+    restart: unless-stopped
 
-  # Funcionalidade 6: Authentication Service com scaling
+  # ================================================================
+  # MICROSERVICES
+  # ================================================================
+
+  # Authentication Service - Gestão de utilizadores
   authentication_service:
     build: ./authentication_service
-    depends_on:
-      ualflix_db:
-        condition: service_healthy
-    networks:
-      - ualflix_network
+    container_name: ualflix_auth
     environment:
       - SECRET_KEY=ualflix-secret-key-change-in-production
+      - DB_MASTER_HOST=ualflix_db_master
+      - DB_SLAVE_HOST=ualflix_db_slave
+      - DB_NAME=ualflix
+      - DB_USER=postgres
+      - DB_PASSWORD=password
+    networks:
+      - ualflix_network
+    depends_on:
+      ualflix_db_master:
+        condition: service_healthy
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
       interval: 30s
       timeout: 10s
       retries: 3
+    restart: unless-stopped
 
-  # Funcionalidade 6: Catalog Service com scaling  
+  # Catalog Service - Gestão de metadados de vídeos
   catalog_service:
     build: ./catalog_service
-    depends_on:
-      ualflix_db:
-        condition: service_healthy
-      queue_service:
-        condition: service_healthy
-      authentication_service:
-        condition: service_healthy
-    networks:
-      - ualflix_network
-    volumes:
-      - video_storage:/videos
+    container_name: ualflix_catalog
     environment:
       - QUEUE_HOST=queue_service
       - QUEUE_USER=ualflix
       - QUEUE_PASSWORD=ualflix_password
       - AUTH_SERVICE_URL=http://authentication_service:8000
+      - DB_MASTER_HOST=ualflix_db_master
+      - DB_SLAVE_HOST=ualflix_db_slave
+      - DB_NAME=ualflix
+      - DB_USER=postgres
+      - DB_PASSWORD=password
+    networks:
+      - ualflix_network
+    volumes:
+      - video_storage:/videos
+    depends_on:
+      ualflix_db_master:
+        condition: service_healthy
+      queue_service:
+        condition: service_healthy
+      authentication_service:
+        condition: service_healthy
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
       interval: 30s
       timeout: 10s
       retries: 3
+    restart: unless-stopped
 
-  # Funcionalidade 6: Streaming Service com scaling
+  # Streaming Service - Entrega de vídeos
   streaming_service:
     build: ./streaming_service
+    container_name: ualflix_streaming
     volumes:
       - video_storage:/videos
     networks:
@@ -95,39 +183,51 @@ services:
       interval: 30s
       timeout: 10s
       retries: 3
+    restart: unless-stopped
 
+  # Video Processor - Processamento assíncrono
   video_processor:
     build: ./video_processor
-    depends_on:
-      queue_service:
-        condition: service_healthy
-    networks:
-      - ualflix_network
-    volumes:
-      - video_storage:/videos
+    container_name: ualflix_processor
     environment:
       - QUEUE_HOST=queue_service
       - QUEUE_USER=ualflix
       - QUEUE_PASSWORD=ualflix_password
+    networks:
+      - ualflix_network
+    volumes:
+      - video_storage:/videos
+    depends_on:
+      queue_service:
+        condition: service_healthy
+    restart: unless-stopped
 
-  # Funcionalidade 7: Admin Service com métricas automáticas
+  # Admin Service - Painel administrativo e métricas
   admin_service:
     build: ./admin_service
+    container_name: ualflix_admin
+    networks:
+      - ualflix_network
     depends_on:
       - authentication_service
       - catalog_service
       - streaming_service
       - video_processor
-    networks:
-      - ualflix_network
+      - database_manager
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:8002/health"]
       interval: 30s
       timeout: 10s
       retries: 3
+    restart: unless-stopped
+
+  # ================================================================
+  # FRONTEND
+  # ================================================================
 
   frontend:
     build: ./frontend
+    container_name: ualflix_frontend
     networks:
       - ualflix_network
     healthcheck:
@@ -135,15 +235,21 @@ services:
       interval: 30s
       timeout: 10s
       retries: 3
+    restart: unless-stopped
 
-  # Funcionalidade 6: Load Balancer HAProxy (opcional)
+  # ================================================================
+  # LOAD BALANCER & PROXY
+  # ================================================================
+
+  # HAProxy Load Balancer (FUNCIONALIDADE 6)
   load_balancer:
     image: haproxy:latest
+    container_name: ualflix_haproxy
     networks:
       - ualflix_network
     ports:
-      - "8090:8090"  # Main load balancer
-      - "8091:8091"  # Prometheus metrics
+      - "8090:8090"
+      - "8091:8091"
     volumes:
       - ./haproxy/haproxy.cfg:/usr/local/etc/haproxy/haproxy.cfg:ro
     depends_on:
@@ -157,11 +263,13 @@ services:
       timeout: 10s
       retries: 3
     profiles:
-      - load-balancer  # Perfil opcional
+      - load-balancer
+    restart: unless-stopped
 
-  # Proxy principal (mantém compatibilidade)
+  # Nginx Reverse Proxy
   nginx:
     image: nginx:latest
+    container_name: ualflix_nginx
     ports:
       - "8080:8080"
     volumes:
@@ -178,9 +286,14 @@ services:
       - ualflix_network
     restart: unless-stopped
 
-  # Funcionalidade 7: Prometheus com configurações melhoradas
+  # ================================================================
+  # MONITORING & METRICS (FUNCIONALIDADE 7)
+  # ================================================================
+
+  # Prometheus - Coleta de métricas
   prometheus:
     image: prom/prometheus:latest
+    container_name: ualflix_prometheus
     volumes:
       - ./monitoring/prometheus.yml:/etc/prometheus/prometheus.yml
       - ./monitoring/alert.rules:/etc/prometheus/alert.rules
@@ -194,6 +307,7 @@ services:
       - streaming_service
       - video_processor
       - admin_service
+      - database_manager
     command:
       - '--config.file=/etc/prometheus/prometheus.yml'
       - '--storage.tsdb.path=/prometheus'
@@ -209,10 +323,12 @@ services:
       interval: 15s
       timeout: 10s
       retries: 3
+    restart: unless-stopped
 
-  # Funcionalidade 7: Grafana com dashboards automáticos
+  # Grafana - Dashboards de métricas
   grafana:
     image: grafana/grafana:latest
+    container_name: ualflix_grafana
     ports:
       - "4000:4000"
     volumes:
@@ -231,10 +347,16 @@ services:
       interval: 15s
       timeout: 10s
       retries: 3
+    restart: unless-stopped
 
-  # Funcionalidade 2: Service Discovery Consul (opcional)
+  # ================================================================
+  # OPTIONAL SERVICES
+  # ================================================================
+
+  # Service Discovery Consul (FUNCIONALIDADE 2)
   consul:
     image: consul:latest
+    container_name: ualflix_consul
     networks:
       - ualflix_network
     ports:
@@ -255,11 +377,13 @@ services:
       timeout: 10s
       retries: 3
     profiles:
-      - cluster  # Perfil opcional
+      - cluster
+    restart: unless-stopped
 
-  # Funcionalidade 5: Cache Redis para replicação de dados (opcional)
+  # Redis Cache (FUNCIONALIDADE 5)
   redis_cache:
     image: redis:alpine
+    container_name: ualflix_redis
     networks:
       - ualflix_network
     ports:
@@ -273,16 +397,43 @@ services:
       timeout: 10s
       retries: 3
     profiles:
-      - cache  # Perfil opcional
+      - cache
+    restart: unless-stopped
+
+# ================================================================
+# VOLUMES
+# ================================================================
 
 volumes:
-  db_data:
+  # Database volumes
+  db_master_data:
+    driver: local
+  db_slave_data:
+    driver: local
+  
+  # Application volumes
   video_storage:
+    driver: local
+  
+  # Monitoring volumes
   grafana_data:
+    driver: local
   prometheus_data:
+    driver: local
+  
+  # Optional volumes
   consul_data:
+    driver: local
   redis_data:
+    driver: local
+
+# ================================================================
+# NETWORKS
+# ================================================================
 
 networks:
   ualflix_network:
     driver: bridge
+    ipam:
+      config:
+        - subnet: 172.20.0.0/16

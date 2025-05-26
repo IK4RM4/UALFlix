@@ -8,7 +8,6 @@ services:
   # DATABASE MASTER - Principal
   ualflix_db_master:
     image: postgres:13
-    container_name: ualflix_db_master
     environment:
       POSTGRES_DB: ualflix
       POSTGRES_USER: postgres
@@ -34,7 +33,6 @@ services:
   
   queue_service:
     image: rabbitmq:3-management
-    container_name: ualflix_queue
     networks:
       - ualflix_network
     ports:
@@ -64,7 +62,6 @@ services:
   # Authentication Service
   authentication_service:
     build: ./authentication_service
-    container_name: ualflix_auth
     environment:
       - SECRET_KEY=ualflix-secret-key-change-in-production
       - DB_MASTER_HOST=ualflix_db_master
@@ -87,7 +84,6 @@ services:
   # Catalog Service
   catalog_service:
     build: ./catalog_service
-    container_name: ualflix_catalog
     environment:
       - QUEUE_HOST=queue_service
       - QUEUE_USER=ualflix
@@ -119,7 +115,6 @@ services:
   # Streaming Service
   streaming_service:
     build: ./streaming_service
-    container_name: ualflix_streaming
     volumes:
       - video_storage:/videos
     networks:
@@ -134,7 +129,6 @@ services:
   # Video Processor
   video_processor:
     build: ./video_processor
-    container_name: ualflix_processor
     environment:
       - QUEUE_HOST=queue_service
       - QUEUE_USER=ualflix
@@ -151,7 +145,6 @@ services:
   # Admin Service - Métricas automáticas
   admin_service:
     build: ./admin_service
-    container_name: ualflix_admin
     networks:
       - ualflix_network
     depends_on:
@@ -172,7 +165,6 @@ services:
 
   frontend:
     build: ./frontend
-    container_name: ualflix_frontend
     networks:
       - ualflix_network
     healthcheck:
@@ -189,7 +181,6 @@ services:
   # Nginx Reverse Proxy
   nginx:
     image: nginx:latest
-    container_name: ualflix_nginx
     ports:
       - "8080:8080"
     volumes:
@@ -213,7 +204,6 @@ services:
   # Prometheus - Coleta de métricas
   prometheus:
     image: prom/prometheus:latest
-    container_name: ualflix_prometheus
     volumes:
       - ./monitoring/prometheus.yml:/etc/prometheus/prometheus.yml
       - ./monitoring/alert.rules:/etc/prometheus/alert.rules
@@ -247,7 +237,6 @@ services:
   # Grafana - Dashboards de métricas
   grafana:
     image: grafana/grafana:latest
-    container_name: ualflix_grafana
     ports:
       - "4000:4000"
     volumes:

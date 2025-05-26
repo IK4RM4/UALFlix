@@ -1,0 +1,215 @@
+[
+  {
+    "automatic_metrics_enabled": true,
+    "id": "ualflix_db",
+    "instance": "ualflix_db:5432",
+    "last_check": "2025-05-26T23:12:12.830198",
+    "logs": [
+      {
+        "level": "INFO",
+        "message": "ualflix_db status: healthy",
+        "timestamp": "23:12:12"
+      }
+    ],
+    "metrics": {
+      "avg_response_time": "72ms",
+      "cpu": "7%",
+      "memory_usage": "72 MB",
+      "request_rate": "3.0/s",
+      "source": "automatic_fallback",
+      "uptime": "2h 36m"
+    },
+    "name": "Ualflix Db",
+    "response_time": "0.001s",
+    "source": "direct_discovery",
+    "status": "healthy",
+    "type": "database",
+    "url": "http://ualflix_db:5432"
+  },
+  {
+    "automatic_metrics_enabled": true,
+    "id": "video_processor",
+    "instance": "video_processor:8000",
+    "last_check": "2025-05-26T23:12:12.839098",
+    "logs": [
+      {
+        "level": "INFO",
+        "message": "video_processor status: healthy",
+        "timestamp": "23:12:12"
+      }
+    ],
+    "metrics": {
+      "avg_response_time": "143ms",
+      "cpu": "13%",
+      "memory_usage": "143 MB",
+      "request_rate": "4.0/s",
+      "source": "automatic_fallback",
+      "uptime": "17h 51m"
+    },
+    "name": "Video Processor",
+    "response_time": "0.003s",
+    "source": "direct_discovery",
+    "status": "healthy",
+    "type": "processor",
+    "url": "http://video_processor:8000"
+  },
+  {
+    "automatic_metrics_enabled": true,
+    "cluster_info": {
+      "load_balanced": true,
+      "node": "node1",
+      "replicas": 2
+    },
+    "id": "streaming_service",
+    "instance": "streaming_service:8001",
+    "last_check": "2025-05-26T23:12:12.842997",
+    "logs": [
+      {
+        "level": "INFO",
+        "message": "streaming_service status: healthy",
+        "timestamp": "23:12:12"
+      }
+    ],
+    "metrics": {
+      "active_replicas": "2",
+      "avg_response_time": "72ms",
+      "cpu": "7%",
+      "memory_usage": "72 MB",
+      "request_rate": "3.0/s",
+      "source": "automatic_fallback",
+      "uptime": "14h 2m"
+    },
+    "name": "Streaming Service",
+    "response_time": "0.006s",
+    "source": "direct_discovery",
+    "status": "healthy",
+    "type": "microservice",
+    "url": "http://streaming_service:8001"
+  },
+  {
+    "automatic_metrics_enabled": true,
+    "cluster_info": {
+      "load_balanced": true,
+      "node": "node1",
+      "replicas": 2
+    },
+    "id": "queue_service",
+    "instance": "queue_service:15672",
+    "last_check": "2025-05-26T23:12:12.845872",
+    "logs": [
+      {
+        "level": "INFO",
+        "message": "queue_service status: healthy",
+        "timestamp": "23:12:12"
+      }
+    ],
+    "metrics": {
+      "active_replicas": "2",
+      "avg_response_time": "62ms",
+      "cpu": "12%",
+      "memory_usage": "62 MB",
+      "request_rate": "3.0/s",
+      "source": "automatic_fallback",
+      "uptime": "16h 41m"
+    },
+    "name": "Queue Service",
+    "response_time": "0.005s",
+    "source": "direct_discovery",
+    "status": "healthy",
+    "type": "messaging",
+    "url": "http://queue_service:15672"
+  },
+  {
+    "automatic_metrics_enabled": true,
+    "cluster_info": {
+      "load_balanced": true,
+      "node": "node1",
+      "replicas": 2
+    },
+    "id": "authentication_service",
+    "instance": "authentication_service:8000",
+    "last_check": "2025-05-26T23:12:12.849487",
+    "logs": [
+      {
+        "level": "INFO",
+        "message": "authentication_service status: healthy",
+        "timestamp": "23:12:12"
+      }
+    ],
+    "metrics": {
+      "active_replicas": "2",
+      "avg_response_time": "86ms",
+      "cpu": "11%",
+      "memory_usage": "86 MB",
+      "request_rate": "2.0/s",
+      "source": "automatic_fallback",
+      "uptime": "12h 17m"
+    },
+    "name": "Authentication Service",
+    "response_time": "0.011s",
+    "source": "direct_discovery",
+    "status": "healthy",
+    "type": "microservice",
+    "url": "http://authentication_service:8000"
+  },
+  {
+    "automatic_metrics_enabled": true,
+    "id": "prometheus",
+    "instance": "prometheus:9090",
+    "last_check": "2025-05-26T23:12:12.852488",
+    "logs": [
+      {
+        "level": "INFO",
+        "message": "prometheus status: healthy",
+        "timestamp": "23:12:12"
+      }
+    ],
+    "metrics": {
+      "avg_response_time": "95ms",
+      "cpu": "0.3%",
+      "memory_usage": "111.9 MB",
+      "request_rate": "1.0/s",
+      "source": "prometheus_with_fallback",
+      "uptime": "17h 58m"
+    },
+    "name": "Prometheus",
+    "response_time": "0.008s",
+    "source": "direct_discovery",
+    "status": "healthy",
+    "type": "monitoring",
+    "url": "http://prometheus:9090"
+  },
+  {
+    "automatic_metrics_enabled": true,
+    "cluster_info": {
+      "load_balanced": true,
+      "node": "node1",
+      "replicas": 3
+    },
+    "id": "catalog_service",
+    "instance": "catalog_service:8000",
+    "last_check": "2025-05-26T23:12:14.337062",
+    "logs": [
+      {
+        "level": "INFO",
+        "message": "catalog_service status: healthy",
+        "timestamp": "23:12:14"
+      }
+    ],
+    "metrics": {
+      "active_replicas": "3",
+      "avg_response_time": "127ms",
+      "cpu": "12%",
+      "memory_usage": "127 MB",
+      "request_rate": "3.0/s",
+      "source": "automatic_fallback",
+      "uptime": "1h 27m"
+    },
+    "name": "Catalog Service",
+    "response_time": "1.511s",
+    "source": "direct_discovery",
+    "status": "healthy",
+    "type": "microservice",
+    "url": "http://catalog_service:8000"
+  }
+]

@@ -1,12 +1,11 @@
 from flask import Flask, request, jsonify, session
 from flask_cors import CORS
 from prometheus_flask_exporter import PrometheusMetrics
-from db import get_db_connection
+import psycopg2
 import os
 import time
 import logging
 import json
-import bcrypt
 import uuid
 from werkzeug.security import generate_password_hash, check_password_hash
 from datetime import datetime, timedelta
@@ -19,7 +18,10 @@ app = Flask(__name__)
 app.secret_key = os.environ.get('SECRET_KEY', 'ualflix-secret-key-change-in-production')
 
 # Configurar métricas Prometheus
-metrics = PrometheusMetrics(app)
+try:
+    metrics = PrometheusMetrics(app)
+except:
+    logger.warning("Erro ao configurar métricas Prometheus")
 
 CORS(
     app,
@@ -33,8 +35,26 @@ CORS(
     },
 )
 
-# Armazenamento simples de sessões em memória (em produção usar Redis)
+# Armazenamento simples de sessões em memória
 active_sessions = {}
+
+# Configuração da base de dados - SIMPLIFICADA
+DB_CONFIG = {
+    'host': os.environ.get('DB_MASTER_HOST', 'ualflix_db_master'),
+    'port': int(os.environ.get('DB_MASTER_PORT', '5432')),
+    'database': os.environ.get('DB_NAME', 'ualflix'),
+    'user': os.environ.get('DB_USER', 'postgres'),
+    'password': os.environ.get('DB_PASSWORD', 'password'),
+}
+
+def get_db_connection():
+    """Obter conexão simples com a base de dados"""
+    try:
+        conn = psycopg2.connect(**DB_CONFIG)
+        return conn
+    except Exception as e:
+        logger.error(f"Erro ao conectar à BD: {e}")
+        raise
 
 def generate_session_token():
     return str(uuid.uuid4())
@@ -58,18 +78,13 @@ def register():
         password = data.get("password")
 
         if not username or not password:
-            return (
-                jsonify(
-                    {"success": False, "error": "Username and password are required"}
-                ),
-                400,
-            )
+            return jsonify({"success": False, "error": "Username and password are required"}), 400
 
         # Se o username for "admin", tornar automaticamente admin
         is_admin = True if username.lower() == "admin" else False
 
-        # Hash the password
-        hashed_password = generate_password_hash(password)
+        # Hash the password - CORRIGIDO para ser mais simples
+        hashed_password = generate_password_hash(password, method='pbkdf2:sha256')
 
         conn = get_db_connection()
         cur = conn.cursor()
@@ -81,10 +96,10 @@ def register():
             conn.close()
             return jsonify({"success": False, "error": "Username already exists"}), 400
 
-        # Insert new user
+        # Insert new user - CORRIGIDO para usar campo email
         cur.execute(
-            "INSERT INTO users (username, password, is_admin) VALUES (%s, %s, %s) RETURNING id",
-            (username, hashed_password, is_admin),
+            "INSERT INTO users (username, email, password, is_admin) VALUES (%s, %s, %s, %s) RETURNING id",
+            (username, f"{username}@ualflix.com", hashed_password, is_admin),
         )
         user_id = cur.fetchone()[0]
         conn.commit()
@@ -116,8 +131,7 @@ def register():
 
     except Exception as e:
         logger.error(f"Error in register: {e}")
-        return jsonify({"success": False, "error": "Internal server error"}), 500
-
+        return jsonify({"success": False, "error": f"Registration failed: {str(e)}"}), 500
 
 @app.route("/login", methods=["POST"])
 def login():
@@ -131,12 +145,7 @@ def login():
         password = data.get("password")
 
         if not username or not password:
-            return (
-                jsonify(
-                    {"success": False, "error": "Username and password are required"}
-                ),
-                400,
-            )
+            return jsonify({"success": False, "error": "Username and password are required"}), 400
 
         conn = get_db_connection()
         cur = conn.cursor()
@@ -148,10 +157,7 @@ def login():
         conn.close()
 
         if not user:
-            return (
-                jsonify({"success": False, "error": "Invalid username or password"}),
-                401,
-            )
+            return jsonify({"success": False, "error": "Invalid username or password"}), 401
 
         # Check password
         if check_password_hash(user[1], password):
@@ -178,14 +184,11 @@ def login():
                 }
             }), 200
         else:
-            return (
-                jsonify({"success": False, "error": "Invalid username or password"}),
-                401,
-            )
+            return jsonify({"success": False, "error": "Invalid username or password"}), 401
 
     except Exception as e:
         logger.error(f"Error in login: {e}")
-        return jsonify({"success": False, "error": "Internal server error"}), 500
+        return jsonify({"success": False, "error": f"Login failed: {str(e)}"}), 500
 
 @app.route("/validate", methods=["POST"])
 def validate_session():
@@ -229,13 +232,16 @@ def logout():
 @app.route("/health", methods=["GET"])
 def health_check():
     try:
-        conn = get_db_connection()
+        conn = psycopg2.connect(**DB_CONFIG)
+        cur = conn.cursor()
+        cur.execute("SELECT 1")
+        cur.fetchone()
+        cur.close()
         conn.close()
         return jsonify({"status": "healthy", "db_connection": "ok"}), 200
     except Exception as e:
         logger.error(f"Erro na verificação de saúde: {e}")
         return jsonify({"status": "unhealthy", "db_connection": "failed"}), 500
-
 
 if __name__ == "__main__":
     app.run(host="0.0.0.0", port=8000, debug=True)

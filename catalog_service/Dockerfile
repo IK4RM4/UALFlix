@@ -16,5 +16,5 @@ RUN chmod +x wait-for-it.sh
 # Expor porta
 EXPOSE 8000
 
-# Use shell script for command to allow variable expansion
-CMD ["./wait-for-it.sh", "ualflix_db", "5432", "--", "python", "app.py"]
+# CORRIGIDO: usar o nome correto do container da base de dados
+CMD ["./wait-for-it.sh", "ualflix_db_master", "5432", "--", "python", "app.py"]

@@ -28,6 +28,56 @@ services:
       retries: 10
     restart: unless-stopped
 
+      # DATABASE SLAVE - Réplica para leituras
+  ualflix_db_slave:
+    image: postgres:13
+    container_name: ualflix_db_slave
+    environment:
+      POSTGRES_DB: ualflix
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: password
+      POSTGRES_MASTER_HOST: ualflix_db_master
+      POSTGRES_MASTER_PORT: 5432
+      PGUSER: postgres
+    volumes:
+      - db_slave_data:/var/lib/postgresql/data
+      - ./database/setup_slave.sh:/docker-entrypoint-initdb.d/setup_slave.sh:ro
+    ports:
+      - "5433:5432"
+    networks:
+      - ualflix_network
+    depends_on:
+      ualflix_db_master:
+        condition: service_healthy
+    command: |
+      bash -c "
+        # Aguardar master estar pronto
+        until pg_isready -h ualflix_db_master -p 5432 -U postgres; do
+          echo 'Aguardando master...'
+          sleep 2
+        done
+        
+        # Se é primeira vez, fazer backup do master
+        if [ ! -f /var/lib/postgresql/data/standby.signal ]; then
+          rm -rf /var/lib/postgresql/data/*
+          pg_basebackup -h ualflix_db_master -D /var/lib/postgresql/data -U postgres -v -P -W
+          echo 'standby_mode = on' >> /var/lib/postgresql/data/recovery.conf
+          echo 'primary_conninfo = \"host=ualflix_db_master port=5432 user=postgres\"' >> /var/lib/postgresql/data/recovery.conf
+          echo 'trigger_file = \"/tmp/promote_to_master\"' >> /var/lib/postgresql/data/recovery.conf
+          touch /var/lib/postgresql/data/standby.signal
+        fi
+        
+        # Iniciar PostgreSQL em modo slave
+        docker-entrypoint.sh postgres
+      "
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    restart: unless-stopped
+
+
   # ================================================================
   # MESSAGING QUEUE
   # ================================================================
@@ -275,6 +325,8 @@ services:
 volumes:
   # Database volume
   db_master_data:
+    driver: local
+  db_slave_data:
     driver: local
   
   # Application volumes

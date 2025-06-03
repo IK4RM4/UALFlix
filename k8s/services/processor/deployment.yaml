@@ -1,0 +1,75 @@
+# PROCESSADOR DE VÍDEOS - Worker assíncrono
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: video-processor
+  namespace: ualflix
+  labels:
+    app: video-processor
+    tier: worker
+    component: processor
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: video-processor
+  template:
+    metadata:
+      labels:
+        app: video-processor
+        tier: worker
+        component: processor
+      annotations:
+        prometheus.io/scrape: "true"
+        prometheus.io/port: "8000"
+        prometheus.io/path: "/metrics"
+    spec:
+      initContainers:
+      - name: wait-for-queue
+        image: curlimages/curl:latest
+        command: ['sh', '-c']
+        args:
+        - |
+          echo "Aguardando RabbitMQ..."
+          until curl -f http://rabbitmq-service:15672/api/overview; do
+            echo "RabbitMQ não está pronto..."
+            sleep 5
+          done
+          echo "RabbitMQ está pronto!"
+      containers:
+      - name: video-processor
+        image: video_processor:latest
+        imagePullPolicy: Never
+        ports:
+        - containerPort: 8000
+          name: http
+        env:
+        - name: QUEUE_HOST
+          valueFrom:
+            configMapKeyRef:
+              name: app-config
+              key: QUEUE_HOST
+        - name: QUEUE_USER
+          valueFrom:
+            configMapKeyRef:
+              name: app-config
+              key: QUEUE_USER
+        - name: QUEUE_PASSWORD
+          valueFrom:
+            secretKeyRef:
+              name: app-secrets
+              key: rabbitmq-password
+        resources:
+          requests:
+            memory: "256Mi"
+            cpu: "250m"
+          limits:
+            memory: "512Mi"
+            cpu: "500m"
+        volumeMounts:
+        - name: video-storage
+          mountPath: /videos
+      volumes:
+      - name: video-storage
+        persistentVolumeClaim:
+          claimName: video-storage-pvc

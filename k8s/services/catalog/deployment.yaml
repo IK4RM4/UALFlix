@@ -1,0 +1,186 @@
+# FUNCIONALIDADE 6: REPLICAÇÃO DE SERVIÇOS - Catalog Service com MongoDB
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: video-storage-pvc
+  namespace: ualflix
+  labels:
+    app: catalog-service
+    component: storage
+spec:
+  accessModes:
+    - ReadWriteMany  # Compartilhado entre réplicas
+  resources:
+    requests:
+      storage: 5Gi
+  storageClassName: standard
+---
+# Deployment do Catalog Service
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: catalog-service
+  namespace: ualflix
+  labels:
+    app: catalog-service
+    tier: backend
+    component: api
+spec:
+  replicas: 3  # FUNCIONALIDADE 6: Múltiplas réplicas
+  selector:
+    matchLabels:
+      app: catalog-service
+  template:
+    metadata:
+      labels:
+        app: catalog-service
+        tier: backend
+        component: api
+      annotations:
+        # FUNCIONALIDADE 7: Métricas para Prometheus
+        prometheus.io/scrape: "true"
+        prometheus.io/port: "8000"
+        prometheus.io/path: "/metrics"
+    spec:
+      initContainers:
+      - name: wait-for-mongodb
+        image: mongo:6.0
+        command: ['sh', '-c']
+        args:
+        - |
+          echo "Aguardando MongoDB..."
+          until mongosh --host mongodb-service --eval "db.adminCommand('ping')" >/dev/null 2>&1; do
+            echo "MongoDB não está pronto, aguardando..."
+            sleep 2
+          done
+          echo "MongoDB está pronto!"
+      containers:
+      - name: catalog-service
+        image: catalog_service:latest
+        imagePullPolicy: Never  # Para desenvolvimento local
+        ports:
+        - containerPort: 8000
+          name: http
+          protocol: TCP
+        env:
+        # MongoDB Configuration
+        - name: MONGODB_HOST
+          valueFrom:
+            configMapKeyRef:
+              name: app-config
+              key: MONGODB_HOST
+        - name: MONGODB_PORT
+          valueFrom:
+            configMapKeyRef:
+              name: app-config
+              key: MONGODB_PORT
+        - name: MONGODB_DATABASE
+          valueFrom:
+            configMapKeyRef:
+              name: app-config
+              key: MONGODB_DATABASE
+        - name: MONGODB_USERNAME
+          valueFrom:
+            configMapKeyRef:
+              name: app-config
+              key: MONGODB_USERNAME
+        - name: MONGODB_PASSWORD
+          valueFrom:
+            secretKeyRef:
+              name: app-secrets
+              key: mongodb-password
+        # Queue Configuration
+        - name: QUEUE_HOST
+          valueFrom:
+            configMapKeyRef:
+              name: app-config
+              key: QUEUE_HOST
+        - name: QUEUE_USER
+          valueFrom:
+            configMapKeyRef:
+              name: app-config
+              key: QUEUE_USER
+        - name: QUEUE_PASSWORD
+          valueFrom:
+            secretKeyRef:
+              name: app-secrets
+              key: rabbitmq-password
+        # Service URLs
+        - name: AUTH_SERVICE_URL
+          valueFrom:
+            configMapKeyRef:
+              name: app-config
+              key: AUTH_SERVICE_URL
+        resources:
+          requests:
+            memory: "256Mi"
+            cpu: "250m"
+          limits:
+            memory: "512Mi"
+            cpu: "500m"
+        livenessProbe:
+          httpGet:
+            path: /health
+            port: 8000
+          initialDelaySeconds: 45
+          periodSeconds: 10
+          timeoutSeconds: 5
+          failureThreshold: 3
+        readinessProbe:
+          httpGet:
+            path: /health
+            port: 8000
+          initialDelaySeconds: 15
+          periodSeconds: 5
+          timeoutSeconds: 3
+          failureThreshold: 3
+        volumeMounts:
+        - name: video-storage
+          mountPath: /videos
+      volumes:
+      - name: video-storage
+        persistentVolumeClaim:
+          claimName: video-storage-pvc
+      restartPolicy: Always
+---
+# FUNCIONALIDADE 6: Auto-scaling baseado em CPU e Memória
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: catalog-service-hpa
+  namespace: ualflix
+  labels:
+    app: catalog-service
+spec:
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: catalog-service
+  minReplicas: 2
+  maxReplicas: 8
+  metrics:
+  - type: Resource
+    resource:
+      name: cpu
+      target:
+        type: Utilization
+        averageUtilization: 70
+  - type: Resource
+    resource:
+      name: memory
+      target:
+        type: Utilization
+        averageUtilization: 80
+  behavior:
+    scaleDown:
+      stabilizationWindowSeconds: 300
+      policies:
+      - type: Percent
+        value: 50
+        periodSeconds: 60
+    scaleUp:
+      stabilizationWindowSeconds: 0
+      policies:
+      - type: Percent
+        value: 100
+        periodSeconds: 15

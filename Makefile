@@ -1,492 +1,327 @@
-<<<<<<< Updated upstream
-# Makefile para gerir o projeto UALFlix
+# Makefile para UALFlix - Kubernetes com 3 Nós
+# FUNCIONALIDADE 2: IMPLEMENTAÇÃO DE CLUSTER DE COMPUTADORES
 
-up:
-	docker-compose up --build
-
-down:
-	docker-compose down
-
-rebuild:
-	docker-compose down --volumes --remove-orphans
-	docker-compose up --build
-
-logs:
-	docker-compose logs -f
-
-ps:
-	docker-compose ps
-
-restart:
-	docker-compose restart
-
-clean:
-	docker system prune -f --volumes
-
-build:
-	docker-compose build
-=======
-# ================================================================
-# UALFlix Makefile - Sistema com Replicação Master-Slave
-# FUNCIONALIDADE 5: Estratégias de Replicação de Dados
-# ================================================================
-
-.PHONY: help build up down restart logs clean status deploy test-replication
-.PHONY: build-master build-slave build-manager build-services
-.PHONY: up-database up-services up-monitoring up-frontend
-.PHONY: logs-master logs-slave logs-manager logs-services
-.PHONY: backup restore clean-volumes clean-all
-.PHONY: health check-replication test-performance scale-services
-
-# ================================================================
-# CONFIGURAÇÕES PRINCIPAIS
-# ================================================================
-
-PROJECT_NAME = ualflix
-COMPOSE_FILE = docker-compose.yml
-MASTER_CONTAINER = ualflix_db_master
-SLAVE_CONTAINER = ualflix_db_slave
-MANAGER_CONTAINER = ualflix_db_manager
+NAMESPACE=ualflix
+NODES=3
+MEMORY=4096
+CPUS=2
 
 # Cores para output
-RED = \033[0;31m
-GREEN = \033[0;32m
-YELLOW = \033[1;33m
-BLUE = \033[0;34m
-PURPLE = \033[0;35m
-CYAN = \033[0;36m
-NC = \033[0m # No Color
+RED=\033[0;31m
+GREEN=\033[0;32m
+YELLOW=\033[1;33m
+BLUE=\033[0;34m
+NC=\033[0m # No Color
 
-# ================================================================
-# COMANDOS PRINCIPAIS
-# ================================================================
+.PHONY: help cluster-start cluster-stop build deploy clean status logs test scale
 
-help: ## 📋 Mostrar todos os comandos disponíveis
-	@echo ""
-	@echo "$(CYAN)🎬 UALFlix - Sistema de Streaming com Replicação Master-Slave$(NC)"
-	@echo "$(CYAN)================================================================$(NC)"
-	@echo ""
-	@echo "$(GREEN)📋 COMANDOS PRINCIPAIS:$(NC)"
-	@echo "  $(YELLOW)make help$(NC)              - Mostrar esta ajuda"
-	@echo "  $(YELLOW)make deploy$(NC)            - Deploy completo do sistema"
-	@echo "  $(YELLOW)make build$(NC)             - Construir todos os containers"
-	@echo "  $(YELLOW)make up$(NC)                - Iniciar todos os serviços"
-	@echo "  $(YELLOW)make down$(NC)              - Parar todos os serviços"
-	@echo "  $(YELLOW)make restart$(NC)           - Reiniciar todos os serviços"
-	@echo "  $(YELLOW)make status$(NC)            - Ver status dos containers"
-	@echo ""
-	@echo "$(GREEN)🗄️ COMANDOS DE DATABASE:$(NC)"
-	@echo "  $(YELLOW)make up-database$(NC)       - Iniciar apenas Master + Slave"
-	@echo "  $(YELLOW)make build-master$(NC)      - Build do Master Database"
-	@echo "  $(YELLOW)make build-slave$(NC)       - Build do Slave Database"
-	@echo "  $(YELLOW)make build-manager$(NC)     - Build do Database Manager"
-	@echo "  $(YELLOW)make check-replication$(NC) - Verificar status de replicação"
-	@echo "  $(YELLOW)make test-replication$(NC)  - Testar replicação de dados"
-	@echo ""
-	@echo "$(GREEN)📊 COMANDOS DE MONITORIZAÇÃO:$(NC)"
-	@echo "  $(YELLOW)make health$(NC)            - Health check de todos os serviços"
-	@echo "  $(YELLOW)make logs$(NC)              - Ver logs de todos os serviços"
-	@echo "  $(YELLOW)make logs-master$(NC)       - Ver logs do Master DB"
-	@echo "  $(YELLOW)make logs-slave$(NC)        - Ver logs do Slave DB"
-	@echo "  $(YELLOW)make logs-manager$(NC)      - Ver logs do DB Manager"
-	@echo "  $(YELLOW)make test-performance$(NC)  - Testar performance do sistema"
-	@echo ""
-	@echo "$(GREEN)🔧 COMANDOS DE MANUTENÇÃO:$(NC)"
-	@echo "  $(YELLOW)make clean$(NC)             - Limpar containers e imagens"
-	@echo "  $(YELLOW)make clean-volumes$(NC)     - Limpar volumes de dados"
-	@echo "  $(YELLOW)make clean-all$(NC)         - Limpeza completa do sistema"
-	@echo "  $(YELLOW)make backup$(NC)            - Fazer backup das bases de dados"
-	@echo "  $(YELLOW)make restore$(NC)           - Restaurar backup das bases de dados"
-	@echo ""
-	@echo "$(GREEN)⚡ COMANDOS DE ESCALABILIDADE:$(NC)"
-	@echo "  $(YELLOW)make scale-services$(NC)    - Escalar serviços (2 réplicas cada)"
-	@echo "  $(YELLOW)make scale-down$(NC)        - Reduzir escala (1 réplica cada)"
-	@echo ""
-	@echo "$(GREEN)🌐 URLs DE ACESSO:$(NC)"
-	@echo "  $(CYAN)Frontend:$(NC)        http://localhost:8080"
-	@echo "  $(CYAN)Prometheus:$(NC)      http://localhost:9090"
-	@echo "  $(CYAN)Grafana:$(NC)         http://localhost:4000 (admin/admin)"
-	@echo "  $(CYAN)RabbitMQ:$(NC)        http://localhost:15672 (ualflix/ualflix_password)"
-	@echo "  $(CYAN)DB Manager:$(NC)      http://localhost:5005"
-	@echo "  $(CYAN)Master DB:$(NC)       localhost:5432"
-	@echo "  $(CYAN)Slave DB:$(NC)        localhost:5433"
-	@echo ""
+help: ## Mostrar ajuda
+	@echo "${BLUE}UALFlix - Kubernetes com 3 Nós${NC}"
+	@echo "${YELLOW}Comandos disponíveis:${NC}"
+	@awk 'BEGIN {FS = ":.*?## "} /^[a-zA-Z_-]+:.*?## / {printf "  ${GREEN}%-15s${NC} %s\n", $$1, $$2}' $(MAKEFILE_LIST)
 
-# ================================================================
-# COMANDOS DE BUILD
-# ================================================================
+# ========================================
+# FUNCIONALIDADE 2: CLUSTER SETUP
+# ========================================
 
-build: ## 🏗️ Construir todos os containers
-	@echo "$(BLUE)🏗️ Construindo todos os containers...$(NC)"
-	docker-compose build --parallel
-	@echo "$(GREEN)✅ Build concluído!$(NC)"
+cluster-start: ## Iniciar cluster Minikube com 3 nós
+	@echo "${BLUE}🚀 Iniciando cluster Kubernetes com $(NODES) nós...${NC}"
+	@minikube delete 2>/dev/null || true
+	@minikube start \
+		--driver=docker \
+		--nodes=$(NODES) \
+		--cpus=$(CPUS) \
+		--memory=$(MEMORY) \
+		--disk-size=20g \
+		--kubernetes-version=v1.28.0
+	@echo "${GREEN}✅ Cluster iniciado com sucesso!${NC}"
+	@make addons-enable
 
-build-services: ## 🔧 Construir apenas serviços principais
-	@echo "$(BLUE)🔧 Construindo serviços principais...$(NC)"
-	docker-compose build authentication_service catalog_service streaming_service admin_service
-	@echo "$(GREEN)✅ Serviços construídos!$(NC)"
+addons-enable: ## Habilitar addons necessários
+	@echo "${BLUE}🔧 Habilitando addons...${NC}"
+	@minikube addons enable ingress
+	@minikube addons enable dashboard
+	@minikube addons enable metrics-server
+	@minikube addons enable default-storageclass
+	@minikube addons enable storage-provisioner
+	@echo "${GREEN}✅ Addons habilitados!${NC}"
 
-build-manager: ## 🗄️ Construir Database Manager
-	@echo "$(BLUE)🗄️ Construindo Database Manager...$(NC)"
-	docker-compose build database_manager
-	@echo "$(GREEN)✅ Database Manager construído!$(NC)"
+cluster-stop: ## Parar cluster Minikube
+	@echo "${RED}🛑 Parando cluster...${NC}"
+	@minikube stop
 
-build-master: ## 🔴 Preparar Master Database
-	@echo "$(BLUE)🔴 Preparando Master Database...$(NC)"
-	@if [ ! -f "database/init_master.sql" ]; then \
-		echo "$(RED)❌ Arquivo database/init_master.sql não encontrado!$(NC)"; \
-		echo "$(YELLOW)Execute: make deploy$(NC)"; \
-		exit 1; \
-	fi
-	@echo "$(GREEN)✅ Master Database preparado!$(NC)"
+cluster-delete: ## Deletar cluster Minikube
+	@echo "${RED}🗑️  Deletando cluster...${NC}"
+	@minikube delete
 
-build-slave: ## 🟢 Preparar Slave Database
-	@echo "$(BLUE)🟢 Preparando Slave Database...$(NC)"
-	@if [ ! -f "database/postgresql_slave.conf" ]; then \
-		echo "$(RED)❌ Configurações do Slave não encontradas!$(NC)"; \
-		echo "$(YELLOW)Execute: make deploy$(NC)"; \
-		exit 1; \
-	fi
-	@echo "$(GREEN)✅ Slave Database preparado!$(NC)"
+cluster-info: ## Mostrar informações do cluster
+	@echo "${BLUE}📊 Informações do Cluster:${NC}"
+	@kubectl cluster-info
+	@echo "\n${BLUE}📋 Nós do Cluster:${NC}"
+	@kubectl get nodes -o wide
 
-# ================================================================
-# COMANDOS DE EXECUÇÃO
-# ================================================================
+# ========================================
+# FUNCIONALIDADE 3: VIRTUALIZAÇÃO
+# ========================================
 
-deploy: ## 🚀 Deploy completo do sistema Master-Slave
-	@echo "$(PURPLE)🚀 Iniciando deploy completo do UALFlix...$(NC)"
-	@if [ ! -f "scripts/deploy_replication.sh" ]; then \
-		echo "$(RED)❌ Script de deploy não encontrado!$(NC)"; \
-		exit 1; \
-	fi
-	chmod +x scripts/deploy_replication.sh
-	./scripts/deploy_replication.sh
-	@echo "$(GREEN)✅ Deploy concluído!$(NC)"
-	@echo ""
-	@echo "$(CYAN)🌐 Sistema disponível em:$(NC)"
-	@echo "  Frontend: http://localhost:8080"
-	@echo "  DB Manager: http://localhost:5005"
+docker-env: ## Configurar ambiente Docker do Minikube
+	@echo "${BLUE}🐳 Configurando Docker environment...${NC}"
+	@eval $$(minikube docker-env)
+	@echo "${GREEN}✅ Docker environment configurado!${NC}"
 
-up: up-database up-services up-monitoring up-frontend ## ⬆️ Iniciar todos os serviços
+build: docker-env ## Build de todas as imagens Docker
+	@echo "${BLUE}🏗️  Building Docker images...${NC}"
+	@eval $$(minikube docker-env) && \
+	docker build -t frontend:latest ./frontend/ && \
+	docker build -t authentication_service:latest ./authentication_service/ && \
+	docker build -t catalog_service:latest ./catalog_service/ && \
+	docker build -t streaming_service:latest ./streaming_service/ && \
+	docker build -t admin_service:latest ./admin_service/ && \
+	docker build -t video_processor:latest ./video_processor/
+	@echo "${GREEN}✅ Todas as imagens foram construídas!${NC}"
 
-up-database: ## 🗄️ Iniciar apenas bases de dados
-	@echo "$(BLUE)🗄️ Iniciando bases de dados...$(NC)"
-	docker-compose up -d ualflix_db_master
-	@echo "$(YELLOW)⏳ Aguardando Master estar pronto...$(NC)"
-	@timeout=60; while [ $$timeout -gt 0 ]; do \
-		if docker exec $(MASTER_CONTAINER) pg_isready -U postgres -d ualflix > /dev/null 2>&1; then \
-			echo "$(GREEN)✅ Master está pronto!$(NC)"; \
-			break; \
-		fi; \
-		echo "⏳ Aguardando Master... ($$timeout segundos restantes)"; \
-		sleep 2; \
-		timeout=$$((timeout - 2)); \
-	done
-	docker-compose up -d ualflix_db_slave
-	@echo "$(YELLOW)⏳ Aguardando Slave estar pronto...$(NC)"
-	@timeout=90; while [ $$timeout -gt 0 ]; do \
-		if docker exec $(SLAVE_CONTAINER) pg_isready -U postgres > /dev/null 2>&1; then \
-			echo "$(GREEN)✅ Slave está pronto!$(NC)"; \
-			break; \
-		fi; \
-		echo "⏳ Aguardando Slave... ($$timeout segundos restantes)"; \
-		sleep 3; \
-		timeout=$$((timeout - 3)); \
-	done
-	docker-compose up -d database_manager
-	@echo "$(GREEN)✅ Bases de dados iniciadas!$(NC)"
+images: ## Listar imagens Docker no Minikube
+	@echo "${BLUE}📦 Imagens Docker disponíveis:${NC}"
+	@eval $$(minikube docker-env) && docker images | grep -E "(frontend|authentication_service|catalog_service|streaming_service|admin_service|video_processor|mongo|rabbitmq|nginx)"
 
-up-services: ## 🔧 Iniciar serviços principais
-	@echo "$(BLUE)🔧 Iniciando serviços principais...$(NC)"
-	docker-compose up -d queue_service
-	sleep 3
-	docker-compose up -d authentication_service catalog_service
-	sleep 3
-	docker-compose up -d streaming_service video_processor admin_service
-	@echo "$(GREEN)✅ Serviços principais iniciados!$(NC)"
+# ========================================
+# FUNCIONALIDADE 4: IMPLEMENTAÇÃO NA CLOUD (Kubernetes)
+# ========================================
 
-up-monitoring: ## 📊 Iniciar monitoring (Prometheus, Grafana)
-	@echo "$(BLUE)📊 Iniciando serviços de monitoring...$(NC)"
-	docker-compose up -d prometheus grafana
-	@echo "$(GREEN)✅ Monitoring iniciado!$(NC)"
+deploy: build ## Deploy completo da aplicação
+	@echo "${BLUE}🚀 Iniciando deploy da aplicação UALFlix...${NC}"
+	@make deploy-namespace
+	@make deploy-secrets
+	@make deploy-database
+	@make deploy-messaging
+	@make deploy-services
+	@make deploy-frontend
+	@make deploy-gateway
+	@make deploy-monitoring
+	@echo "${GREEN}✅ Deploy completo realizado!${NC}"
+	@make status
 
-up-frontend: ## 🌐 Iniciar frontend e proxy
-	@echo "$(BLUE)🌐 Iniciando frontend...$(NC)"
-	docker-compose up -d frontend nginx
-	@echo "$(GREEN)✅ Frontend iniciado!$(NC)"
+deploy-namespace: ## Criar namespace
+	@echo "${YELLOW}📁 Criando namespace...${NC}"
+	@kubectl apply -f k8s/namespace.yaml
 
-down: ## ⬇️ Parar todos os serviços
-	@echo "$(BLUE)⬇️ Parando todos os serviços...$(NC)"
-	docker-compose down
-	@echo "$(GREEN)✅ Todos os serviços parados!$(NC)"
+deploy-secrets: ## Aplicar secrets e configmaps
+	@echo "${YELLOW}🔐 Aplicando secrets e configmaps...${NC}"
+	@kubectl apply -f k8s/secrets.yaml
 
-restart: down up ## 🔄 Reiniciar todos os serviços
+deploy-database: ## Deploy MongoDB
+	@echo "${YELLOW}🗄️  Deploying MongoDB...${NC}"
+	@kubectl apply -f k8s/database/
+	@echo "Aguardando MongoDB ficar pronto..."
+	@kubectl wait --for=condition=ready pod -l app=mongodb -n $(NAMESPACE) --timeout=300s || true
 
-# ================================================================
-# COMANDOS DE MONITORIZAÇÃO
-# ================================================================
+deploy-messaging: ## Deploy RabbitMQ
+	@echo "${YELLOW}🐰 Deploying RabbitMQ...${NC}"
+	@kubectl apply -f k8s/messaging/
+	@echo "Aguardando RabbitMQ ficar pronto..."
+	@kubectl wait --for=condition=ready pod -l app=rabbitmq -n $(NAMESPACE) --timeout=300s || true
 
-status: ## 📊 Ver status dos containers
-	@echo "$(BLUE)📊 Status dos containers:$(NC)"
-	@echo ""
-	docker-compose ps
-	@echo ""
-	@echo "$(CYAN)🗄️ Status das bases de dados:$(NC)"
-	@if docker exec $(MASTER_CONTAINER) pg_isready -U postgres -d ualflix > /dev/null 2>&1; then \
-		echo "$(GREEN)✅ Master Database: ONLINE (porta 5432)$(NC)"; \
-	else \
-		echo "$(RED)❌ Master Database: OFFLINE$(NC)"; \
-	fi
-	@if docker exec $(SLAVE_CONTAINER) pg_isready -U postgres > /dev/null 2>&1; then \
-		echo "$(GREEN)✅ Slave Database: ONLINE (porta 5433)$(NC)"; \
-	else \
-		echo "$(RED)❌ Slave Database: OFFLINE$(NC)"; \
-	fi
-	@if curl -s http://localhost:5005/health > /dev/null 2>&1; then \
-		echo "$(GREEN)✅ Database Manager: ONLINE (porta 5005)$(NC)"; \
-	else \
-		echo "$(RED)❌ Database Manager: OFFLINE$(NC)"; \
-	fi
+deploy-services: ## Deploy serviços da aplicação
+	@echo "${YELLOW}🔧 Deploying application services...${NC}"
+	@kubectl apply -f k8s/services/auth/
+	@kubectl apply -f k8s/services/catalog/
+	@kubectl apply -f k8s/services/streaming/
+	@kubectl apply -f k8s/services/admin/
+	@kubectl apply -f k8s/services/processor/
+	@echo "Aguardando serviços ficarem prontos..."
+	@kubectl wait --for=condition=available deployment --all -n $(NAMESPACE) --timeout=300s || true
 
-health: ## 🏥 Health check de todos os serviços
-	@echo "$(BLUE)🏥 Verificando saúde dos serviços...$(NC)"
-	@echo ""
-	@services="authentication_service:8000 catalog_service:8000 streaming_service:8001 admin_service:8002 database_manager:5000"; \
-	for service in $$services; do \
-		name=$$(echo $$service | cut -d: -f1); \
-		port=$$(echo $$service | cut -d: -f2); \
-		if curl -s http://localhost:$$port/health > /dev/null 2>&1; then \
-			echo "$(GREEN)✅ $$name: HEALTHY$(NC)"; \
-		else \
-			echo "$(RED)❌ $$name: UNHEALTHY$(NC)"; \
-		fi; \
-	done
-	@echo ""
-	@echo "$(CYAN)🌐 URLs de acesso:$(NC)"
-	@echo "  Frontend: http://localhost:8080"
-	@echo "  Prometheus: http://localhost:9090"
-	@echo "  Grafana: http://localhost:4000"
+deploy-frontend: ## Deploy React Frontend
+	@echo "${YELLOW}⚛️  Deploying React Frontend...${NC}"
+	@kubectl apply -f k8s/frontend/
+	@kubectl wait --for=condition=available deployment/frontend -n $(NAMESPACE) --timeout=300s || true
 
-logs: ## 📋 Ver logs de todos os serviços
-	@echo "$(BLUE)📋 Logs de todos os serviços:$(NC)"
-	docker-compose logs -f
+deploy-gateway: ## Deploy NGINX Gateway (Roteador Principal)
+	@echo "${YELLOW}🌐 Deploying NGINX Gateway...${NC}"
+	@kubectl apply -f k8s/ingress/nginx-configmap.yaml
+	@kubectl apply -f k8s/ingress/nginx-deployment.yaml
+	@kubectl apply -f k8s/ingress/nginx-service.yaml
+	@kubectl wait --for=condition=available deployment/nginx-gateway -n $(NAMESPACE) --timeout=300s || true
 
-logs-master: ## 🔴 Ver logs do Master Database
-	@echo "$(BLUE)🔴 Logs do Master Database:$(NC)"
-	docker-compose logs -f ualflix_db_master
+deploy-monitoring: ## Deploy Prometheus e Grafana
+	@echo "${YELLOW}📊 Deploying monitoring stack...${NC}"
+	@kubectl apply -f k8s/monitoring/ || true
+	@echo "Aguardando monitoring ficar pronto..."
+	@kubectl wait --for=condition=available deployment/prometheus -n $(NAMESPACE) --timeout=300s || true
+	@kubectl wait --for=condition=available deployment/grafana -n $(NAMESPACE) --timeout=300s || true
 
-logs-slave: ## 🟢 Ver logs do Slave Database
-	@echo "$(BLUE)🟢 Logs do Slave Database:$(NC)"
-	docker-compose logs -f ualflix_db_slave
+# ========================================
+# FUNCIONALIDADE 7: AVALIAÇÃO DE DESEMPENHO
+# ========================================
 
-logs-manager: ## 🗄️ Ver logs do Database Manager
-	@echo "$(BLUE)🗄️ Logs do Database Manager:$(NC)"
-	docker-compose logs -f database_manager
+status: ## Verificar status do sistema
+	@echo "${BLUE}📊 Status do Sistema UALFlix:${NC}"
+	@echo "\n${YELLOW}🏷️  Namespace:${NC}"
+	@kubectl get namespace $(NAMESPACE)
+	@echo "\n${YELLOW}📦 Pods:${NC}"
+	@kubectl get pods -n $(NAMESPACE) -o wide
+	@echo "\n${YELLOW}🔗 Services:${NC}"
+	@kubectl get services -n $(NAMESPACE)
+	@echo "\n${YELLOW}🚀 Deployments:${NC}"
+	@kubectl get deployments -n $(NAMESPACE)
+	@echo "\n${YELLOW}⚖️  HPA (Auto-scaling):${NC}"
+	@kubectl get hpa -n $(NAMESPACE) || echo "Nenhum HPA configurado ainda"
 
-logs-services: ## 🔧 Ver logs dos serviços principais
-	@echo "$(BLUE)🔧 Logs dos serviços principais:$(NC)"
-	docker-compose logs -f authentication_service catalog_service streaming_service admin_service
+pods: ## Listar pods com detalhes
+	@kubectl get pods -n $(NAMESPACE) -o wide
 
-# ================================================================
-# COMANDOS DE REPLICAÇÃO
-# ================================================================
+services: ## Listar serviços
+	@kubectl get services -n $(NAMESPACE) -o wide
 
-check-replication: ## 🔍 Verificar status de replicação
-	@echo "$(BLUE)🔍 Verificando status de replicação...$(NC)"
-	@echo ""
-	@echo "$(CYAN)📊 Status via Database Manager:$(NC)"
-	@if curl -s http://localhost:5005/status > /dev/null 2>&1; then \
-		curl -s http://localhost:5005/status | python3 -m json.tool; \
-	else \
-		echo "$(RED)❌ Database Manager não está acessível$(NC)"; \
-	fi
-	@echo ""
-	@echo "$(CYAN)🔴 Status do Master:$(NC)"
-	@docker exec $(MASTER_CONTAINER) psql -U postgres -d ualflix -c "\
-		SELECT \
-			application_name, \
-			client_addr, \
-			state, \
-			sync_state \
-		FROM pg_stat_replication;" 2>/dev/null || echo "$(RED)❌ Erro ao consultar Master$(NC)"
-	@echo ""
-	@echo "$(CYAN)🟢 Status do Slave:$(NC)"
-	@docker exec $(SLAVE_CONTAINER) psql -U postgres -d ualflix -c "\
-		SELECT \
-			pg_is_in_recovery() as is_slave, \
-			CASE WHEN pg_is_in_recovery() THEN 'Slave Mode' ELSE 'Master Mode' END as mode;" 2>/dev/null || echo "$(RED)❌ Erro ao consultar Slave$(NC)"
+logs: ## Ver logs dos serviços principais
+	@echo "${BLUE}📋 Logs dos Serviços:${NC}"
+	@echo "\n${YELLOW}🌐 NGINX Gateway:${NC}"
+	@kubectl logs -n $(NAMESPACE) deployment/nginx-gateway --tail=10 || true
+	@echo "\n${YELLOW}🔐 Authentication Service:${NC}"
+	@kubectl logs -n $(NAMESPACE) deployment/auth-service --tail=10 || true
+	@echo "\n${YELLOW}📁 Catalog Service:${NC}"
+	@kubectl logs -n $(NAMESPACE) deployment/catalog-service --tail=10 || true
 
-test-replication: ## 🧪 Testar replicação de dados
-	@echo "$(BLUE)🧪 Testando replicação de dados...$(NC)"
-	@if [ -f "scripts/test_replication.py" ]; then \
-		python3 scripts/test_replication.py; \
-	else \
-		echo "$(RED)❌ Script de teste não encontrado$(NC)"; \
-		echo "$(YELLOW)Executando teste simples...$(NC)"; \
-		$(MAKE) test-replication-simple; \
-	fi
+logs-follow: ## Seguir logs em tempo real
+	@echo "${BLUE}📋 Seguindo logs do NGINX Gateway...${NC}"
+	@kubectl logs -f -n $(NAMESPACE) deployment/nginx-gateway
 
-test-replication-simple: ## 🧪 Teste simples de replicação
-	@echo "$(YELLOW)🧪 Teste simples de replicação...$(NC)"
-	@test_data="Test data $$(date +%s)"; \
-	echo "Inserindo dados no Master: $$test_data"; \
-	docker exec $(MASTER_CONTAINER) psql -U postgres -d ualflix -c "\
-		INSERT INTO replication_test (test_data) VALUES ('$$test_data');" > /dev/null; \
-	echo "$(YELLOW)⏳ Aguardando replicação (3 segundos)...$(NC)"; \
-	sleep 3; \
-	echo "Verificando no Slave:"; \
-	if docker exec $(SLAVE_CONTAINER) psql -U postgres -d ualflix -c "\
-		SELECT test_data FROM replication_test WHERE test_data = '$$test_data';" | grep -q "$$test_data"; then \
-		echo "$(GREEN)✅ Replicação funcionando!$(NC)"; \
-	else \
-		echo "$(RED)❌ Replicação com problemas$(NC)"; \
-	fi
+# ========================================
+# FUNCIONALIDADE 6: REPLICAÇÃO DE SERVIÇOS
+# ========================================
 
-test-performance: ## ⚡ Testar performance do sistema
-	@echo "$(BLUE)⚡ Testando performance do sistema...$(NC)"
-	@if [ -f "load_testing/run_load_tests.py" ]; then \
-		echo "$(YELLOW)Executando testes de carga...$(NC)"; \
-		cd load_testing && python3 run_load_tests.py -u 10 -d 30; \
-	else \
-		echo "$(YELLOW)Script de teste de carga não encontrado$(NC)"; \
-		echo "$(CYAN)Executando teste básico de conectividade...$(NC)"; \
-		$(MAKE) test-connectivity; \
-	fi
+scale: ## Escalar serviços (uso: make scale SERVICE=catalog-service REPLICAS=5)
+	@echo "${BLUE}⚖️  Escalando $(SERVICE) para $(REPLICAS) réplicas...${NC}"
+	@kubectl scale deployment $(SERVICE) --replicas=$(REPLICAS) -n $(NAMESPACE)
+	@kubectl get deployment $(SERVICE) -n $(NAMESPACE)
 
-test-connectivity: ## 🌐 Testar conectividade dos serviços
-	@echo "$(BLUE)🌐 Testando conectividade...$(NC)"
-	@services="8080 9090 4000 5005 5432 5433"; \
-	for port in $$services; do \
-		if nc -z localhost $$port 2>/dev/null; then \
-			echo "$(GREEN)✅ Porta $$port: ACESSÍVEL$(NC)"; \
-		else \
-			echo "$(RED)❌ Porta $$port: INACESSÍVEL$(NC)"; \
-		fi; \
-	done
+scale-all: ## Escalar todos os serviços principais
+	@echo "${BLUE}⚖️  Escalando todos os serviços...${NC}"
+	@kubectl scale deployment auth-service --replicas=3 -n $(NAMESPACE)
+	@kubectl scale deployment catalog-service --replicas=4 -n $(NAMESPACE)
+	@kubectl scale deployment streaming-service --replicas=4 -n $(NAMESPACE)
+	@kubectl scale deployment admin-service --replicas=2 -n $(NAMESPACE)
+	@kubectl scale deployment nginx-gateway --replicas=3 -n $(NAMESPACE)
+	@echo "${GREEN}✅ Escalamento concluído!${NC}"
 
-# ================================================================
-# COMANDOS DE ESCALABILIDADE
-# ================================================================
+scale-down: ## Reduzir réplicas para economizar recursos
+	@echo "${YELLOW}⬇️  Reduzindo réplicas...${NC}"
+	@kubectl scale deployment auth-service --replicas=1 -n $(NAMESPACE)
+	@kubectl scale deployment catalog-service --replicas=2 -n $(NAMESPACE)
+	@kubectl scale deployment streaming-service --replicas=2 -n $(NAMESPACE)
+	@kubectl scale deployment admin-service --replicas=1 -n $(NAMESPACE)
+	@kubectl scale deployment nginx-gateway --replicas=2 -n $(NAMESPACE)
 
-scale-services: ## ⚡ Escalar serviços (2 réplicas cada)
-	@echo "$(BLUE)⚡ Escalando serviços para 2 réplicas...$(NC)"
-	docker-compose up -d --scale authentication_service=2 --scale catalog_service=2 --scale streaming_service=2
-	@echo "$(GREEN)✅ Serviços escalados!$(NC)"
-	docker-compose ps
+# ========================================
+# ACESSO À APLICAÇÃO
+# ========================================
 
-scale-down: ## ⬇️ Reduzir escala (1 réplica cada)
-	@echo "$(BLUE)⬇️ Reduzindo escala para 1 réplica...$(NC)"
-	docker-compose up -d --scale authentication_service=1 --scale catalog_service=1 --scale streaming_service=1
-	@echo "$(GREEN)✅ Escala reduzida!$(NC)"
+url: ## Obter URL da aplicação
+	@echo "${BLUE}🌐 URLs de Acesso:${NC}"
+	@echo "${GREEN}Aplicação Principal (NGINX Gateway):${NC}"
+	@minikube service nginx-gateway --namespace $(NAMESPACE) --url
+	@echo "\n${GREEN}Prometheus:${NC}"
+	@minikube service prometheus-service --namespace $(NAMESPACE) --url || true
+	@echo "\n${GREEN}Grafana:${NC}"
+	@minikube service grafana-service --namespace $(NAMESPACE) --url || true
 
-# ================================================================
-# COMANDOS DE MANUTENÇÃO
-# ================================================================
+open: ## Abrir aplicação no browser
+	@echo "${BLUE}🌐 Abrindo UALFlix no browser...${NC}"
+	@minikube service nginx-gateway --namespace $(NAMESPACE)
 
-backup: ## 💾 Fazer backup das bases de dados
-	@echo "$(BLUE)💾 Fazendo backup das bases de dados...$(NC)"
-	@mkdir -p backups
-	@timestamp=$$(date +%Y%m%d_%H%M%S); \
-	echo "Backup Master Database..."; \
-	docker exec $(MASTER_CONTAINER) pg_dump -U postgres ualflix > backups/master_backup_$$timestamp.sql; \
-	echo "Backup Slave Database..."; \
-	docker exec $(SLAVE_CONTAINER) pg_dump -U postgres ualflix > backups/slave_backup_$$timestamp.sql; \
-	echo "$(GREEN)✅ Backups criados em backups/$(NC)"
-	@ls -la backups/
+dashboard: ## Abrir Kubernetes Dashboard
+	@echo "${BLUE}📊 Abrindo Kubernetes Dashboard...${NC}"
+	@minikube dashboard
 
-restore: ## 🔄 Restaurar backup das bases de dados
-	@echo "$(BLUE)🔄 Restaurar backup...$(NC)"
-	@if [ ! -d "backups" ]; then \
-		echo "$(RED)❌ Diretório backups/ não encontrado$(NC)"; \
-		exit 1; \
-	fi
-	@echo "$(YELLOW)Backups disponíveis:$(NC)"
-	@ls -la backups/
-	@echo "$(RED)⚠️ Esta operação irá sobrescrever os dados atuais!$(NC)"
-	@echo "$(YELLOW)Execute manualmente: docker exec $(MASTER_CONTAINER) psql -U postgres ualflix < backups/master_backup_YYYYMMDD_HHMMSS.sql$(NC)"
+tunnel: ## Iniciar tunnel para LoadBalancer (deixar rodando em terminal separado)
+	@echo "${BLUE}🚇 Iniciando Minikube tunnel...${NC}"
+	@echo "${YELLOW}⚠️  Mantenha este comando rodando em um terminal separado${NC}"
+	@minikube tunnel
 
-clean: ## 🧹 Limpar containers e imagens não utilizadas
-	@echo "$(BLUE)🧹 Limpando containers e imagens...$(NC)"
-	docker-compose down
-	docker system prune -f
-	docker image prune -f
-	@echo "$(GREEN)✅ Limpeza concluída!$(NC)"
+port-forward: ## Port forward para desenvolvimento
+	@echo "${BLUE}🔌 Iniciando port forwards...${NC}"
+	@echo "${YELLOW}NGINX Gateway: http://localhost:8080${NC}"
+	@kubectl port-forward -n $(NAMESPACE) service/nginx-gateway 8080:8080 &
+	@echo "${YELLOW}Prometheus: http://localhost:9090${NC}"
+	@kubectl port-forward -n $(NAMESPACE) service/prometheus-service 9090:9090 &
+	@echo "${YELLOW}Grafana: http://localhost:3001${NC}"
+	@kubectl port-forward -n $(NAMESPACE) service/grafana-service 3001:3000 &
+	@echo "${GREEN}✅ Port forwards iniciados em background${NC}"
 
-clean-volumes: ## 🗑️ Limpar volumes de dados
-	@echo "$(RED)⚠️ Esta operação irá apagar todos os dados!$(NC)"
-	@echo "$(YELLOW)Pressione Ctrl+C para cancelar...$(NC)"
-	@sleep 5
-	@echo "$(BLUE)🗑️ Limpando volumes...$(NC)"
-	docker-compose down -v
-	docker volume prune -f
-	@echo "$(GREEN)✅ Volumes limpos!$(NC)"
+# ========================================
+# TESTES E DEBUG
+# ========================================
 
-clean-all: clean clean-volumes ## 💥 Limpeza completa do sistema
+test: ## Testar conectividade dos serviços
+	@echo "${BLUE}🧪 Testando conectividade...${NC}"
+	@echo "\n${YELLOW}Testando NGINX Gateway:${NC}"
+	@kubectl exec -n $(NAMESPACE) deployment/frontend -- curl -f http://nginx-gateway:8080/health || true
+	@echo "\n${YELLOW}Testando Auth Service:${NC}"
+	@kubectl exec -n $(NAMESPACE) deployment/frontend -- curl -f http://auth-service:8000/health || true
+	@echo "\n${YELLOW}Testando Catalog Service:${NC}"
+	@kubectl exec -n $(NAMESPACE) deployment/frontend -- curl -f http://catalog-service:8000/health || true
 
-# ================================================================
-# COMANDOS DE DESENVOLVIMENTO
-# ================================================================
+debug: ## Debug de um pod específico (uso: make debug POD=catalog-service)
+	@echo "${BLUE}🐛 Entrando no pod $(POD)...${NC}"
+	@kubectl exec -it -n $(NAMESPACE) deployment/$(POD) -- /bin/bash
 
-dev-setup: ## 🔧 Setup para desenvolvimento
-	@echo "$(BLUE)🔧 Configurando ambiente de desenvolvimento...$(NC)"
-	$(MAKE) deploy
-	@echo "$(GREEN)✅ Ambiente de desenvolvimento pronto!$(NC)"
-	@echo ""
-	@echo "$(CYAN)📝 Para desenvolvimento:$(NC)"
-	@echo "  1. Frontend: http://localhost:8080"
-	@echo "  2. Admin (login admin/admin): http://localhost:8080"
-	@echo "  3. Métricas: http://localhost:5005/status"
-	@echo "  4. Logs: make logs-services"
+describe: ## Descrever um recurso (uso: make describe RESOURCE=pod/nome-do-pod)
+	@kubectl describe -n $(NAMESPACE) $(RESOURCE)
 
-dev-rebuild: ## 🔄 Rebuild rápido para desenvolvimento
-	@echo "$(BLUE)🔄 Rebuild rápido...$(NC)"
-	docker-compose build --no-cache authentication_service catalog_service admin_service
-	docker-compose restart authentication_service catalog_service admin_service
-	@echo "$(GREEN)✅ Rebuild concluído!$(NC)"
+events: ## Ver eventos do cluster
+	@echo "${BLUE}📅 Eventos do Cluster:${NC}"
+	@kubectl get events -n $(NAMESPACE) --sort-by=.metadata.creationTimestamp
 
-# ================================================================
-# COMANDOS DE INFORMAÇÃO
-# ================================================================
+top: ## Ver utilização de recursos
+	@echo "${BLUE}📊 Utilização de Recursos:${NC}"
+	@echo "\n${YELLOW}Nós:${NC}"
+	@kubectl top nodes || echo "Metrics server não disponível"
+	@echo "\n${YELLOW}Pods:${NC}"
+	@kubectl top pods -n $(NAMESPACE) || echo "Metrics server não disponível"
 
-info: ## ℹ️ Informações do sistema
-	@echo "$(CYAN)ℹ️ Informações do Sistema UALFlix$(NC)"
-	@echo "=================================="
-	@echo ""
-	@echo "$(GREEN)📊 Containers:$(NC)"
-	@docker-compose ps --format "table {{.Name}}\t{{.Status}}\t{{.Ports}}"
-	@echo ""
-	@echo "$(GREEN)💾 Volumes:$(NC)"
-	@docker volume ls | grep ualflix || echo "Nenhum volume encontrado"
-	@echo ""
-	@echo "$(GREEN)🌐 Rede:$(NC)"
-	@docker network ls | grep ualflix || echo "Rede não encontrada"
-	@echo ""
-	@echo "$(GREEN)🔗 URLs:$(NC)"
-	@echo "  Frontend:     http://localhost:8080"
-	@echo "  DB Manager:   http://localhost:5005"
-	@echo "  Prometheus:   http://localhost:9090"
-	@echo "  Grafana:      http://localhost:4000"
-	@echo "  RabbitMQ:     http://localhost:15672"
+# ========================================
+# LIMPEZA
+# ========================================
 
-# ================================================================
-# COMANDOS RÁPIDOS
-# ================================================================
+clean: ## Remover toda a aplicação (manter cluster)
+	@echo "${RED}🧹 Removendo aplicação UALFlix...${NC}"
+	@kubectl delete namespace $(NAMESPACE) --ignore-not-found=true
+	@echo "${GREEN}✅ Aplicação removida!${NC}"
 
-quick-start: deploy ## 🚀 Início rápido (alias para deploy)
+clean-all: clean cluster-delete ## Remover tudo (aplicação + cluster)
+	@echo "${RED}🗑️  Limpeza completa realizada!${NC}"
 
-quick-stop: down ## 🛑 Parada rápida (alias para down)
+restart: ## Reiniciar um deployment (uso: make restart SERVICE=catalog-service)
+	@echo "${BLUE}🔄 Reiniciando $(SERVICE)...${NC}"
+	@kubectl rollout restart deployment/$(SERVICE) -n $(NAMESPACE)
+	@kubectl rollout status deployment/$(SERVICE) -n $(NAMESPACE)
 
-quick-restart: ## 🔄 Restart rápido dos serviços principais
-	@echo "$(BLUE)🔄 Restart rápido...$(NC)"
-	docker-compose restart authentication_service catalog_service streaming_service admin_service
-	@echo "$(GREEN)✅ Restart concluído!$(NC)"
+restart-all: ## Reiniciar todos os deployments
+	@echo "${BLUE}🔄 Reiniciando todos os serviços...${NC}"
+	@kubectl rollout restart deployment --all -n $(NAMESPACE)
 
-quick-logs: ## 📋 Logs dos serviços principais
-	docker-compose logs -f --tail=50 authentication_service catalog_service streaming_service admin_service
+# ========================================
+# FUNCIONALIDADES COMPLETAS
+# ========================================
 
-# ================================================================
-# DEFAULT TARGET
-# ================================================================
+demo: cluster-start deploy url ## Setup completo para demonstração
+	@echo "${GREEN}🎉 UALFlix está pronto para demonstração!${NC}"
+	@echo "${BLUE}Funcionalidades implementadas:${NC}"
+	@echo "✅ FUNCIONALIDADE 1: Tecnologias de Sistemas Distribuídos"
+	@echo "✅ FUNCIONALIDADE 2: Cluster de Computadores (3 nós)"
+	@echo "✅ FUNCIONALIDADE 3: Virtualização (Docker + Kubernetes)"
+	@echo "✅ FUNCIONALIDADE 4: Implementação na Cloud (Kubernetes)"
+	@echo "✅ FUNCIONALIDADE 5: Replicação de Dados (MongoDB)"
+	@echo "✅ FUNCIONALIDADE 6: Replicação de Serviços (Load Balancing)"
+	@echo "✅ FUNCIONALIDADE 7: Avaliação de Desempenho (Métricas)"
 
-.DEFAULT_GOAL := help
->>>>>>> Stashed changes
+verify: ## Verificar se tudo está funcionando
+	@echo "${BLUE}✅ Verificação Final do Sistema:${NC}"
+	@echo "\n${YELLOW}1. Nós do cluster:${NC}"
+	@kubectl get nodes
+	@echo "\n${YELLOW}2. Pods em execução:${NC}"
+	@kubectl get pods -n $(NAMESPACE)
+	@echo "\n${YELLOW}3. Serviços disponíveis:${NC}"
+	@kubectl get services -n $(NAMESPACE)
+	@echo "\n${YELLOW}4. Testando aplicação:${NC}"
+	@curl -f $$(minikube service nginx-gateway --namespace $(NAMESPACE) --url)/health 2>/dev/null && echo "✅ Aplicação respondendo" || echo "❌ Aplicação não responde"

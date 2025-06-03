@@ -1,0 +1,285 @@
+# FUNCIONALIDADE 5: REPLICAÇÃO DE DADOS - MongoDB with Persistent Storage
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: mongodb-pvc
+  namespace: ualflix
+  labels:
+    app: mongodb
+    component: storage
+spec:
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: 3Gi
+  storageClassName: standard
+---
+# ConfigMap com script de inicialização do MongoDB
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: mongodb-init
+  namespace: ualflix
+  labels:
+    app: mongodb
+    component: config
+data:
+  init-db.js: |
+    // UALFlix MongoDB Initialization Script
+    
+    // Switch to ualflix database
+    db = db.getSiblingDB('ualflix');
+    
+    // Create collections with schema validation
+    
+    // Users Collection
+    db.createCollection("users", {
+       validator: {
+          $jsonSchema: {
+             bsonType: "object",
+             title: "User Account Schema",
+             required: [ "username", "email", "password" ],
+             properties: {
+                username: {
+                   bsonType: "string",
+                   description: "must be a string and is required"
+                },
+                email: {
+                   bsonType: "string",
+                   pattern: "^.+@.+$",
+                   description: "must be a string and match email pattern"
+                },
+                password: {
+                   bsonType: "string",
+                   description: "must be a string and is required"
+                },
+                is_admin: {
+                   bsonType: "bool",
+                   description: "must be a boolean"
+                },
+                created_at: {
+                   bsonType: "date",
+                   description: "must be a date"
+                }
+             }
+          }
+       }
+    });
+    
+    // Videos Collection
+    db.createCollection("videos", {
+       validator: {
+          $jsonSchema: {
+             bsonType: "object",
+             title: "Video Schema",
+             required: [ "title", "filename", "user_id" ],
+             properties: {
+                title: {
+                   bsonType: "string",
+                   description: "must be a string and is required"
+                },
+                description: {
+                   bsonType: "string",
+                   description: "must be a string"
+                },
+                filename: {
+                   bsonType: "string",
+                   description: "must be a string and is required"
+                },
+                url: {
+                   bsonType: "string",
+                   description: "must be a string"
+                },
+                duration: {
+                   bsonType: "number",
+                   description: "must be a number"
+                },
+                file_path: {
+                   bsonType: "string",
+                   description: "must be a string"
+                },
+                thumbnail_path: {
+                   bsonType: "string",
+                   description: "must be a string"
+                },
+                upload_date: {
+                   bsonType: "date",
+                   description: "must be a date"
+                },
+                view_count: {
+                   bsonType: "number",
+                   minimum: 0,
+                   description: "must be a number >= 0"
+                },
+                status: {
+                   enum: [ "active", "inactive", "processing", "error" ],
+                   description: "can only be one of the enum values"
+                },
+                user_id: {
+                   bsonType: "objectId",
+                   description: "must be an ObjectId and is required"
+                }
+             }
+          }
+       }
+    });
+    
+    // Video Views Collection (for analytics)
+    db.createCollection("video_views", {
+       validator: {
+          $jsonSchema: {
+             bsonType: "object",
+             title: "Video View Schema",
+             required: [ "video_id", "view_date" ],
+             properties: {
+                video_id: {
+                   bsonType: "objectId",
+                   description: "must be an ObjectId and is required"
+                },
+                user_id: {
+                   bsonType: "objectId",
+                   description: "must be an ObjectId"
+                },
+                view_date: {
+                   bsonType: "date",
+                   description: "must be a date and is required"
+                },
+                watch_duration: {
+                   bsonType: "number",
+                   minimum: 0,
+                   description: "must be a number >= 0"
+                },
+                ip_address: {
+                   bsonType: "string",
+                   description: "must be a string"
+                }
+             }
+          }
+       }
+    });
+    
+    // Create indexes for performance
+    db.users.createIndex({ "username": 1 }, { unique: true });
+    db.users.createIndex({ "email": 1 }, { unique: true });
+    db.videos.createIndex({ "user_id": 1 });
+    db.videos.createIndex({ "status": 1 });
+    db.videos.createIndex({ "upload_date": -1 });
+    db.video_views.createIndex({ "video_id": 1 });
+    db.video_views.createIndex({ "user_id": 1 });
+    db.video_views.createIndex({ "view_date": -1 });
+    
+    // Insert sample data
+    var adminUser = db.users.insertOne({
+        username: "admin",
+        email: "admin@ualflix.com",
+        password: "pbkdf2:sha256:admin_hash",
+        is_admin: true,
+        created_at: new Date()
+    });
+    
+    var regularUser = db.users.insertOne({
+        username: "user1",
+        email: "user1@ualflix.com", 
+        password: "pbkdf2:sha256:user_hash",
+        is_admin: false,
+        created_at: new Date()
+    });
+    
+    // Sample video
+    db.videos.insertOne({
+        title: "Sample Video",
+        description: "This is a sample video for testing",
+        filename: "sample_video.mp4",
+        url: "/stream/sample_video.mp4",
+        duration: 120,
+        file_path: "/videos/sample_video.mp4",
+        upload_date: new Date(),
+        view_count: 0,
+        status: "active",
+        user_id: adminUser.insertedId
+    });
+    
+    print("UALFlix MongoDB initialization completed successfully!");
+---
+# MongoDB Deployment
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: mongodb
+  namespace: ualflix
+  labels:
+    app: mongodb
+    tier: database
+    component: primary
+spec:
+  replicas: 1  # Single instance para simplicidade acadêmica
+  selector:
+    matchLabels:
+      app: mongodb
+  template:
+    metadata:
+      labels:
+        app: mongodb
+        tier: database
+        component: primary
+    spec:
+      containers:
+      - name: mongodb
+        image: mongo:6.0
+        ports:
+        - containerPort: 27017
+          name: mongodb
+        env:
+        - name: MONGO_INITDB_ROOT_USERNAME
+          value: "root"
+        - name: MONGO_INITDB_ROOT_PASSWORD
+          valueFrom:
+            secretKeyRef:
+              name: app-secrets
+              key: mongodb-root-password
+        - name: MONGO_INITDB_DATABASE
+          valueFrom:
+            configMapKeyRef:
+              name: app-config
+              key: MONGODB_DATABASE
+        resources:
+          requests:
+            memory: "256Mi"
+            cpu: "250m"
+          limits:
+            memory: "512Mi"
+            cpu: "500m"
+        volumeMounts:
+        - name: mongodb-data
+          mountPath: /data/db
+        - name: mongodb-init
+          mountPath: /docker-entrypoint-initdb.d/
+        livenessProbe:
+          exec:
+            command:
+            - mongosh
+            - --eval
+            - "db.adminCommand('ping')"
+          initialDelaySeconds: 30
+          periodSeconds: 10
+          timeoutSeconds: 5
+          failureThreshold: 3
+        readinessProbe:
+          exec:
+            command:
+            - mongosh
+            - --eval
+            - "db.adminCommand('ping')"
+          initialDelaySeconds: 15
+          periodSeconds: 5
+          timeoutSeconds: 3
+          failureThreshold: 3
+      volumes:
+      - name: mongodb-data
+        persistentVolumeClaim:
+          claimName: mongodb-pvc
+      - name: mongodb-init
+        configMap:
+          name: mongodb-init
+      restartPolicy: Always

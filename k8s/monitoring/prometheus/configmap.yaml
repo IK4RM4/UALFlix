@@ -1,0 +1,72 @@
+# FUNCIONALIDADE 7: CONFIGURAÇÃO DO PROMETHEUS
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: prometheus-config
+  namespace: ualflix
+  labels:
+    app: prometheus
+    component: config
+data:
+  prometheus.yml: |
+    global:
+      scrape_interval: 15s
+      evaluation_interval: 15s
+      external_labels:
+        project: 'ualflix'
+        environment: 'academic'
+        database: 'mongodb'
+    
+    scrape_configs:
+      # Scraping dos pods com anotação prometheus.io/scrape=true
+      - job_name: 'kubernetes-pods'
+        kubernetes_sd_configs:
+        - role: pod
+          namespaces:
+            names:
+            - ualflix
+        relabel_configs:
+        - source_labels: [__meta_kubernetes_pod_annotation_prometheus_io_scrape]
+          action: keep
+          regex: true
+        - source_labels: [__meta_kubernetes_pod_annotation_prometheus_io_path]
+          action: replace
+          target_label: __metrics_path__
+          regex: (.+)
+        - source_labels: [__address__, __meta_kubernetes_pod_annotation_prometheus_io_port]
+          action: replace
+          regex: ([^:]+)(?::\d+)?;(\d+)
+          replacement: ${1}:${2}
+          target_label: __address__
+        - action: labelmap
+          regex: __meta_kubernetes_pod_label_(.+)
+        - source_labels: [__meta_kubernetes_namespace]
+          action: replace
+          target_label: kubernetes_namespace
+        - source_labels: [__meta_kubernetes_pod_name]
+          action: replace
+          target_label: kubernetes_pod_name
+      
+      # Scraping específico dos serviços UALFlix
+      - job_name: 'ualflix-services'
+        static_configs:
+        - targets:
+          - 'catalog-service:8000'
+          - 'streaming-service:8001'
+          - 'auth-service:8000'
+          - 'admin-service:8002'
+          - 'video-processor-service:8000'
+        metrics_path: '/metrics'
+        scrape_interval: 10s
+      
+      # RabbitMQ metrics
+      - job_name: 'rabbitmq'
+        static_configs:
+        - targets: ['rabbitmq-service:15692']
+        scrape_interval: 15s
+      
+      # MongoDB metrics (se disponível)
+      - job_name: 'mongodb'
+        static_configs:
+        - targets: ['mongodb-service:27017']
+        scrape_interval: 30s

@@ -1,0 +1,39 @@
+groups:
+  - name: ualflix_alerts
+    interval: 10s
+    rules:
+      - alert: ServiceDown
+        expr: up == 0
+        for: 10s
+        labels:
+          severity: critical
+        annotations:
+          summary: "Service {{ $labels.job }} is down"
+          description: "Service {{ $labels.job }} has been down for more than 10 seconds"
+
+      - alert: HighCPUUsage
+        expr: ualflix_system_cpu_percent > 80
+        for: 2m
+        labels:
+          severity: warning
+        annotations:
+          summary: "High CPU usage on {{ $labels.service }}"
+          description: "CPU usage is {{ $value }}% on {{ $labels.service }}"
+
+      - alert: HighMemoryUsage
+        expr: ualflix_system_memory_percent > 85
+        for: 2m
+        labels:
+          severity: warning
+        annotations:
+          summary: "High memory usage on {{ $labels.service }}"
+          description: "Memory usage is {{ $value }}% on {{ $labels.service }}"
+
+      - alert: LowSystemAvailability
+        expr: ualflix_system_availability_percent < 90
+        for: 1m
+        labels:
+          severity: critical
+        annotations:
+          summary: "Low system availability"
+          description: "System availability is {{ $value }}%"

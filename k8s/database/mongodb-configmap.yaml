@@ -1,0 +1,165 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: mongodb-init-scripts
+  namespace: ualflix
+  labels:
+    app: mongodb
+    tier: database
+data:
+  init-replica.js: |
+    // MongoDB Replica Set initialization script
+    
+    // Wait for all 3 instances to be available before initializing the replica set
+    let attempt = 0;
+    const maxAttempts = 30;
+    
+    while (attempt < maxAttempts) {
+      try {
+        const primaryStatus = db.adminCommand({ ping: 1 });
+        
+        // Test connection to secondary nodes
+        const secondary1Status = db.hello().ok;
+        
+        print(`Successfully connected to MongoDB instances on attempt ${attempt}`);
+        break;
+      } catch (error) {
+        print(`Waiting for all MongoDB instances to be available... Attempt ${attempt}`);
+        sleep(2000);
+        attempt++;
+      }
+    }
+    
+    if (attempt === maxAttempts) {
+      print("Could not connect to all MongoDB instances. Proceeding anyway...");
+    }
+    
+    // Initiate replica set
+    try {
+      print("Configuring replica set...");
+      rs.initiate({
+        _id: "ualflix-replica-set",
+        members: [
+          { _id: 0, host: "mongodb-0.mongodb-headless.ualflix.svc.cluster.local:27017", priority: 2 },
+          { _id: 1, host: "mongodb-1.mongodb-headless.ualflix.svc.cluster.local:27017", priority: 1 },
+          { _id: 2, host: "mongodb-2.mongodb-headless.ualflix.svc.cluster.local:27017", arbiterOnly: true }
+        ]
+      });
+      
+      print("Waiting for replica set to initialize...");
+      sleep(5000);
+      
+      // Print replica set status
+      rs.status();
+    } catch (error) {
+      print(`Error configuring replica set: ${error}`);
+    }
+    
+    // Wait for primary election
+    attempt = 0;
+    while (attempt < maxAttempts) {
+      try {
+        const status = rs.status();
+        if (status.members.some(m => m.state === 1)) {  // State 1 = PRIMARY
+          print("Primary elected, continuing setup...");
+          break;
+        }
+        print("Waiting for primary election...");
+        sleep(2000);
+        attempt++;
+      } catch (error) {
+        print(`Error checking replica status: ${error}`);
+        sleep(2000);
+        attempt++;
+      }
+    }
+    
+    // Create admin user - Run only on primary
+    try {
+      print("Creating admin user...");
+      use admin;
+      db.createUser({
+        user: "admin",
+        pwd: "password",
+        roles: [{ role: "root", db: "admin" }]
+      });
+      
+      print("Creating application user...");
+      db.createUser({
+        user: "ualflix",
+        pwd: "ualflix_pass",
+        roles: [
+          { role: "readWrite", db: "ualflix" },
+          { role: "dbAdmin", db: "ualflix" }
+        ]
+      });
+    } catch (error) {
+      print(`Error creating users: ${error}`);
+    }
+    
+    // Setup application database
+    try {
+      print("Setting up ualflix database...");
+      use ualflix;
+      
+      // Create collections with validation
+      db.createCollection("users", {
+        validator: {
+          $jsonSchema: {
+            bsonType: "object",
+            required: ["username", "password"],
+            properties: {
+              username: { bsonType: "string" },
+              email: { bsonType: "string" },
+              password: { bsonType: "string" },
+              is_admin: { bsonType: "bool" }
+            }
+          }
+        }
+      });
+      
+      db.createCollection("videos", {
+        validator: {
+          $jsonSchema: {
+            bsonType: "object",
+            required: ["title", "filename"],
+            properties: {
+              title: { bsonType: "string" },
+              description: { bsonType: "string" },
+              filename: { bsonType: "string" },
+              status: { enum: ["active", "processing", "error"] }
+            }
+          }
+        }
+      });
+      
+      db.createCollection("video_views");
+      db.createCollection("replication_test");
+      
+      // Create indexes
+      db.users.createIndex({ "username": 1 }, { unique: true });
+      db.users.createIndex({ "email": 1 });
+      db.videos.createIndex({ "user_id": 1 });
+      db.videos.createIndex({ "status": 1 });
+      db.videos.createIndex({ "upload_date": -1 });
+      db.video_views.createIndex({ "video_id": 1 });
+      db.video_views.createIndex({ "user_id": 1 });
+      
+      // Insert admin user if not exists
+      const adminExists = db.users.findOne({ username: "admin" });
+      if (!adminExists) {
+        db.users.insertOne({
+          username: "admin",
+          email: "admin@ualflix.com",
+          password: "pbkdf2:sha256:260000$5fGQQvXhm0XKU6iF$1d1c65c1f0ad1c02b20e9c1e5f9a4b0c8d9e7f6g5h4i3j2k1l0m9n8o7p6q5r4s3t2u1v0w9x8y7z6a5b4c3d2e1f0",
+          is_admin: true,
+          created_at: new Date(),
+          updated_at: new Date()
+        });
+        print("Admin user created");
+      }
+      
+      print("Database setup complete!");
+    } catch (error) {
+      print(`Error setting up database: ${error}`);
+    }

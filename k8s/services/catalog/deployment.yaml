@@ -1,0 +1,110 @@
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: video-storage-pvc
+  namespace: ualflix
+  labels:
+    app: catalog-service
+    component: storage
+spec:
+  accessModes:
+    - ReadWriteMany
+  resources:
+    requests:
+      storage: 5Gi
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: catalog-service
+  namespace: ualflix
+  labels:
+    app: catalog-service
+    tier: backend
+    component: api
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: catalog-service
+  template:
+    metadata:
+      labels:
+        app: catalog-service
+        tier: backend
+        component: api
+      annotations:
+        prometheus.io/scrape: "true"
+        prometheus.io/port: "8000"
+        prometheus.io/path: "/metrics"
+    spec:
+      initContainers:
+      - name: wait-for-mongodb
+        image: mongo:6.0
+        command: ['sh', '-c']
+        args:
+        - |
+          echo "Waiting for MongoDB..."
+          until mongosh --host mongodb-0.mongodb-headless.ualflix.svc.cluster.local --eval "db.adminCommand('ping')" >/dev/null 2>&1; do
+            echo "MongoDB not ready, waiting..."
+            sleep 2
+          done
+          echo "MongoDB is ready!"
+      containers:
+      - name: catalog-service
+        image: catalog_service:latest
+        imagePullPolicy: Never
+        ports:
+        - containerPort: 8000
+          name: http
+        env:
+        - name: MONGODB_CONNECTION_STRING
+          value: "mongodb://admin:password@mongodb-0.mongodb-headless.ualflix.svc.cluster.local:27017,mongodb-1.mongodb-headless.ualflix.svc.cluster.local:27017,mongodb-2.mongodb-headless.ualflix.svc.cluster.local:27017/ualflix?replicaSet=ualflix-replica-set&authSource=admin"
+        - name: MONGODB_DATABASE
+          value: "ualflix"
+        - name: MONGODB_USERNAME
+          value: "admin"
+        - name: MONGODB_PASSWORD
+          valueFrom:
+            secretKeyRef:
+              name: app-secrets
+              key: mongodb-password
+        - name: MONGODB_REPLICA_SET
+          value: "ualflix-replica-set"
+        - name: QUEUE_HOST
+          value: "rabbitmq-service"
+        - name: QUEUE_USER
+          value: "ualflix"
+        - name: QUEUE_PASSWORD
+          valueFrom:
+            secretKeyRef:
+              name: app-secrets
+              key: rabbitmq-password
+        - name: AUTH_SERVICE_URL
+          value: "http://auth-service:8000"
+        resources:
+          requests:
+            memory: "256Mi"
+            cpu: "250m"
+          limits:
+            memory: "512Mi"
+            cpu: "500m"
+        livenessProbe:
+          httpGet:
+            path: /health
+            port: 8000
+          initialDelaySeconds: 45
+          periodSeconds: 10
+        readinessProbe:
+          httpGet:
+            path: /health
+            port: 8000
+          initialDelaySeconds: 15
+          periodSeconds: 5
+        volumeMounts:
+        - name: video-storage
+          mountPath: /videos
+      volumes:
+      - name: video-storage
+        persistentVolumeClaim:
+          claimName: video-storage-pvc

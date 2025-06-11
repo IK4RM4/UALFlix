@@ -2,19 +2,20 @@ FROM python:3.10
 
 WORKDIR /app
 
-COPY requirements.txt .
-RUN pip install -r requirements.txt
+COPY requirements.mongodb.txt requirements.mongodb.txt
+RUN pip install -r requirements.mongodb.txt
 
-# Instala netcat-openbsd para o wait-for-it funcionar
+# Instala netcat-openbsd para health checks
 RUN apt-get update && apt-get install -y netcat-openbsd curl && rm -rf /var/lib/apt/lists/*
 
 COPY . .
-
-# Tornar o script executável
-RUN chmod +x wait-for-it.sh
+COPY db_mongodb.py .
 
 # Expor porta
 EXPOSE 8000
 
-# CORRIGIDO: usar o nome correto do container da base de dados
-CMD ["./wait-for-it.sh", "ualflix_db_master", "5432", "--", "python", "app.py"]
+# Healthcheck
+HEALTHCHECK --interval=30s --timeout=10s --start-period=5s --retries=3 \
+    CMD curl -f http://localhost:8000/health || exit 1
+
+CMD ["python", "app.py"]

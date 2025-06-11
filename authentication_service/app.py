@@ -1,14 +1,15 @@
 from flask import Flask, request, jsonify, session
 from flask_cors import CORS
 from prometheus_flask_exporter import PrometheusMetrics
-import psycopg2
 import os
 import time
 import logging
 import json
 import uuid
 from werkzeug.security import generate_password_hash, check_password_hash
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
+from bson import ObjectId
+from db_mongodb import get_mongodb_manager, with_write_db, with_read_db
 
 # Configuração de logging
 logging.basicConfig(level=logging.INFO)
@@ -38,33 +39,61 @@ CORS(
 # Armazenamento simples de sessões em memória
 active_sessions = {}
 
-# Configuração da base de dados - SIMPLIFICADA
-DB_CONFIG = {
-    'host': os.environ.get('DB_MASTER_HOST', 'ualflix_db_master'),
-    'port': int(os.environ.get('DB_MASTER_PORT', '5432')),
-    'database': os.environ.get('DB_NAME', 'ualflix'),
-    'user': os.environ.get('DB_USER', 'postgres'),
-    'password': os.environ.get('DB_PASSWORD', 'password'),
-}
-
-def get_db_connection():
-    """Obter conexão simples com a base de dados"""
-    try:
-        conn = psycopg2.connect(**DB_CONFIG)
-        return conn
-    except Exception as e:
-        logger.error(f"Erro ao conectar à BD: {e}")
-        raise
-
 def generate_session_token():
     return str(uuid.uuid4())
 
 def get_user_from_token(token):
     """Retorna informações do usuário baseado no token de sessão."""
     session_data = active_sessions.get(token)
-    if session_data and session_data['expires'] > datetime.now():
+    if session_data and session_data['expires'] > datetime.now(timezone.utc):
         return session_data['user']
     return None
+
+@with_write_db
+def create_user(db, username, email, password, is_admin=False):
+    """Cria um novo usuário no MongoDB"""
+    # Verificar se usuário já existe
+    existing_user = db.users.find_one({'username': username})
+    if existing_user:
+        return None, "Username already exists"
+    
+    # Hash da password
+    hashed_password = generate_password_hash(password, method='pbkdf2:sha256')
+    
+    # Criar documento do usuário
+    user_doc = {
+        'username': username,
+        'email': email,
+        'password': hashed_password,
+        'is_admin': is_admin,
+        'created_at': datetime.now(timezone.utc),
+        'updated_at': datetime.now(timezone.utc)
+    }
+    
+    # Inserir no MongoDB
+    result = db.users.insert_one(user_doc)
+    
+    return result.inserted_id, None
+
+@with_read_db
+def authenticate_user(db, username, password):
+    """Autentica usuário"""
+    # Buscar usuário
+    user = db.users.find_one({'username': username})
+    
+    if not user:
+        return None, "Invalid username or password"
+    
+    # Verificar password
+    if check_password_hash(user['password'], password):
+        return {
+            'id': str(user['_id']),
+            'username': user['username'],
+            'email': user.get('email', ''),
+            'is_admin': user.get('is_admin', False)
+        }, None
+    
+    return None, "Invalid username or password"
 
 @app.route("/register", methods=["POST"])
 def register():
@@ -82,39 +111,24 @@ def register():
 
         # Se o username for "admin", tornar automaticamente admin
         is_admin = True if username.lower() == "admin" else False
+        email = data.get("email", f"{username}@ualflix.com")
 
-        # Hash the password - CORRIGIDO para ser mais simples
-        hashed_password = generate_password_hash(password, method='pbkdf2:sha256')
-
-        conn = get_db_connection()
-        cur = conn.cursor()
-
-        # Check if username already exists
-        cur.execute("SELECT id FROM users WHERE username = %s", (username,))
-        if cur.fetchone():
-            cur.close()
-            conn.close()
-            return jsonify({"success": False, "error": "Username already exists"}), 400
-
-        # Insert new user - CORRIGIDO para usar campo email
-        cur.execute(
-            "INSERT INTO users (username, email, password, is_admin) VALUES (%s, %s, %s, %s) RETURNING id",
-            (username, f"{username}@ualflix.com", hashed_password, is_admin),
-        )
-        user_id = cur.fetchone()[0]
-        conn.commit()
-        cur.close()
-        conn.close()
+        # Criar usuário
+        user_id, error = create_user(username, email, password, is_admin)
+        
+        if error:
+            return jsonify({"success": False, "error": error}), 400
 
         # Criar sessão
         token = generate_session_token()
         active_sessions[token] = {
             'user': {
-                'id': user_id,
+                'id': str(user_id),
                 'username': username,
+                'email': email,
                 'is_admin': is_admin
             },
-            'expires': datetime.now() + timedelta(hours=24)
+            'expires': datetime.now(timezone.utc) + timedelta(hours=24)
         }
 
         logger.info(f"User {username} registered successfully")
@@ -123,8 +137,9 @@ def register():
             "message": "User registered successfully",
             "token": token,
             "user": {
-                "id": user_id,
+                "id": str(user_id),
                 "username": username,
+                "email": email,
                 "is_admin": is_admin
             }
         }), 201
@@ -147,44 +162,26 @@ def login():
         if not username or not password:
             return jsonify({"success": False, "error": "Username and password are required"}), 400
 
-        conn = get_db_connection()
-        cur = conn.cursor()
+        # Autenticar usuário
+        user, error = authenticate_user(username, password)
+        
+        if error:
+            return jsonify({"success": False, "error": error}), 401
 
-        # Get user from database
-        cur.execute("SELECT id, password, is_admin FROM users WHERE username = %s", (username,))
-        user = cur.fetchone()
-        cur.close()
-        conn.close()
+        # Criar sessão
+        token = generate_session_token()
+        active_sessions[token] = {
+            'user': user,
+            'expires': datetime.now(timezone.utc) + timedelta(hours=24)
+        }
 
-        if not user:
-            return jsonify({"success": False, "error": "Invalid username or password"}), 401
-
-        # Check password
-        if check_password_hash(user[1], password):
-            # Criar sessão
-            token = generate_session_token()
-            active_sessions[token] = {
-                'user': {
-                    'id': user[0],
-                    'username': username,
-                    'is_admin': user[2]
-                },
-                'expires': datetime.now() + timedelta(hours=24)
-            }
-
-            logger.info(f"User {username} logged in successfully")
-            return jsonify({
-                "success": True, 
-                "message": "Login successful",
-                "token": token,
-                "user": {
-                    "id": user[0],
-                    "username": username,
-                    "is_admin": user[2]
-                }
-            }), 200
-        else:
-            return jsonify({"success": False, "error": "Invalid username or password"}), 401
+        logger.info(f"User {username} logged in successfully")
+        return jsonify({
+            "success": True, 
+            "message": "Login successful",
+            "token": token,
+            "user": user
+        }), 200
 
     except Exception as e:
         logger.error(f"Error in login: {e}")
@@ -232,16 +229,72 @@ def logout():
 @app.route("/health", methods=["GET"])
 def health_check():
     try:
-        conn = psycopg2.connect(**DB_CONFIG)
-        cur = conn.cursor()
-        cur.execute("SELECT 1")
-        cur.fetchone()
-        cur.close()
-        conn.close()
-        return jsonify({"status": "healthy", "db_connection": "ok"}), 200
+        # Testar conexão MongoDB
+        manager = get_mongodb_manager()
+        db = manager.get_read_database()
+        
+        # Ping simples
+        db.command('ping')
+        
+        # Contar usuários
+        users_count = db.users.count_documents({})
+        
+        return jsonify({
+            "status": "healthy", 
+            "service": "authentication",
+            "database": "mongodb",
+            "users_count": users_count,
+            "timestamp": datetime.now(timezone.utc).isoformat()
+        }), 200
+        
     except Exception as e:
         logger.error(f"Erro na verificação de saúde: {e}")
-        return jsonify({"status": "unhealthy", "db_connection": "failed"}), 500
+        return jsonify({
+            "status": "unhealthy", 
+            "database": "mongodb_failed",
+            "error": str(e),
+            "timestamp": datetime.now(timezone.utc).isoformat()
+        }), 500
+
+@app.route("/stats", methods=["GET"])
+def get_stats():
+    """Estatísticas do serviço de autenticação"""
+    try:
+        manager = get_mongodb_manager()
+        
+        # Métricas básicas
+        metrics = manager.get_database_metrics()
+        
+        # Estatísticas de sessões
+        active_sessions_count = len([s for s in active_sessions.values() 
+                                   if s['expires'] > datetime.now(timezone.utc)])
+        
+        # Status do replica set
+        replica_status = manager.check_replica_set_status()
+        
+        return jsonify({
+            "service": "authentication",
+            "active_sessions": active_sessions_count,
+            "total_sessions_created": len(active_sessions),
+            "database_metrics": metrics,
+            "replica_set_status": replica_status,
+            "timestamp": datetime.now(timezone.utc).isoformat()
+        })
+        
+    except Exception as e:
+        logger.error(f"Erro ao obter estatísticas: {e}")
+        return jsonify({"error": str(e)}), 500
 
 if __name__ == "__main__":
+    logger.info("🔐 Authentication Service com MongoDB iniciado")
+    
+    # Inicializar MongoDB
+    try:
+        manager = get_mongodb_manager()
+        manager.create_indexes()
+        manager.init_collections()
+        logger.info("✅ MongoDB inicializado")
+    except Exception as e:
+        logger.error(f"❌ Erro ao inicializar MongoDB: {e}")
+    
     app.run(host="0.0.0.0", port=8000, debug=True)

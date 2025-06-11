@@ -1,0 +1,7 @@
+Flask
+Flask-Cors
+pymongo[srv]
+dnspython
+prometheus-flask-exporter
+pika
+requests

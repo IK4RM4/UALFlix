@@ -1,0 +1,81 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: auth-service
+  namespace: ualflix
+  labels:
+    app: auth-service
+    tier: backend
+    component: authentication
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: auth-service
+  template:
+    metadata:
+      labels:
+        app: auth-service
+        tier: backend
+        component: authentication
+      annotations:
+        prometheus.io/scrape: "true"
+        prometheus.io/port: "8000"
+        prometheus.io/path: "/metrics"
+    spec:
+      initContainers:
+      - name: wait-for-mongodb
+        image: mongo:6.0
+        command: ['sh', '-c']
+        args:
+        - |
+          until mongosh --host mongodb-0.mongodb-headless.ualflix.svc.cluster.local --eval "db.adminCommand('ping')" >/dev/null 2>&1; do
+            echo "Waiting for MongoDB..."
+            sleep 2
+          done
+          echo "MongoDB ready!"
+      containers:
+      - name: auth-service
+        image: authentication_service:latest
+        imagePullPolicy: Never
+        ports:
+        - containerPort: 8000
+          name: http
+        env:
+        - name: SECRET_KEY
+          valueFrom:
+            secretKeyRef:
+              name: app-secrets
+              key: jwt-secret
+        - name: MONGODB_CONNECTION_STRING
+          value: "mongodb://admin:password@mongodb-0.mongodb-headless.ualflix.svc.cluster.local:27017,mongodb-1.mongodb-headless.ualflix.svc.cluster.local:27017,mongodb-2.mongodb-headless.ualflix.svc.cluster.local:27017/ualflix?replicaSet=ualflix-replica-set&authSource=admin"
+        - name: MONGODB_DATABASE
+          value: "ualflix"
+        - name: MONGODB_USERNAME
+          value: "admin"
+        - name: MONGODB_PASSWORD
+          valueFrom:
+            secretKeyRef:
+              name: app-secrets
+              key: mongodb-password
+        - name: MONGODB_REPLICA_SET
+          value: "ualflix-replica-set"
+        resources:
+          requests:
+            memory: "128Mi"
+            cpu: "100m"
+          limits:
+            memory: "256Mi"
+            cpu: "250m"
+        livenessProbe:
+          httpGet:
+            path: /health
+            port: 8000
+          initialDelaySeconds: 45
+          periodSeconds: 10
+        readinessProbe:
+          httpGet:
+            path: /health
+            port: 8000
+          initialDelaySeconds: 15
+          periodSeconds: 5

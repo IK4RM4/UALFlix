@@ -1,0 +1,17 @@
+# SERVIÇO DE AUTENTICAÇÃO
+apiVersion: v1
+kind: Service
+metadata:
+  name: auth-service
+  namespace: ualflix
+  labels:
+    app: auth-service
+spec:
+  selector:
+    app: auth-service
+  ports:
+  - port: 8000
+    targetPort: 8000
+    protocol: TCP
+    name: http
+  type: ClusterIP

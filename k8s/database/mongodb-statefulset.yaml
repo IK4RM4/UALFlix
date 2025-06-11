@@ -1,0 +1,234 @@
+# k8s/database/mongodb-statefulset.yaml
+# FUNCIONALIDADE 5: ESTRATÉGIAS DE REPLICAÇÃO DE DADOS - MongoDB Replica Set
+apiVersion: v1
+kind: Service
+metadata:
+  name: mongodb-headless
+  namespace: ualflix
+  labels:
+    app: mongodb
+    tier: database
+spec:
+  clusterIP: None
+  selector:
+    app: mongodb
+  ports:
+  - port: 27017
+    targetPort: 27017
+    protocol: TCP
+    name: mongodb
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: mongodb
+  namespace: ualflix
+  labels:
+    app: mongodb
+    tier: database
+    component: replica-set
+spec:
+  serviceName: mongodb-headless
+  replicas: 3  # 3 réplicas para distribuir pelos 3 nós
+  selector:
+    matchLabels:
+      app: mongodb
+  template:
+    metadata:
+      labels:
+        app: mongodb
+        tier: database
+        component: replica-set
+    spec:
+      # FUNCIONALIDADE 2: Distribuir pelos nós do cluster
+      affinity:
+        podAntiAffinity:
+          preferredDuringSchedulingIgnoredDuringExecution:
+          - weight: 50
+            podAffinityTerm:
+              labelSelector:
+                matchExpressions:
+                - key: app
+                  operator: In
+                  values:
+                  - mongodb
+              topologyKey: kubernetes.io/hostname
+      terminationGracePeriodSeconds: 30
+      containers:
+      - name: mongodb
+        image: mongo:6.0
+        command:
+        - mongod
+        - --replSet
+        - ualflix-replica-set
+        - --bind_ip_all
+        - --port
+        - "27017"
+        ports:
+        - containerPort: 27017
+          name: mongodb
+        env:
+        - name: MONGO_INITDB_ROOT_USERNAME
+          valueFrom:
+            secretKeyRef:
+              name: app-secrets
+              key: mongodb-username
+        - name: MONGO_INITDB_ROOT_PASSWORD
+          valueFrom:
+            secretKeyRef:
+              name: app-secrets
+              key: mongodb-root-password
+        - name: MONGO_INITDB_DATABASE
+          valueFrom:
+            configMapKeyRef:
+              name: app-config
+              key: MONGODB_DATABASE
+        resources:
+          requests:
+            memory: "256Mi"
+            cpu: "100m"
+          limits:
+            memory: "512Mi"
+            cpu: "250m"
+        volumeMounts:
+        - name: mongodb-data
+          mountPath: /data/db
+        - name: mongodb-config
+          mountPath: /data/configdb
+        livenessProbe:
+          exec:
+            command:
+            - mongosh
+            - --eval
+            - "db.adminCommand('ping')"
+          initialDelaySeconds: 30
+          periodSeconds: 10
+          timeoutSeconds: 5
+          failureThreshold: 3
+        readinessProbe:
+          exec:
+            command:
+            - mongosh
+            - --eval
+            - "db.adminCommand('ping')"
+          initialDelaySeconds: 15
+          periodSeconds: 5
+          timeoutSeconds: 3
+          failureThreshold: 3
+      volumes:
+      - name: mongodb-config
+        emptyDir: {}
+  volumeClaimTemplates:
+  - metadata:
+      name: mongodb-data
+      labels:
+        app: mongodb
+    spec:
+      accessModes: [ "ReadWriteOnce" ]
+      resources:
+        requests:
+          storage: 1Gi
+---
+# Job para inicializar o Replica Set
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: mongodb-replica-set-init
+  namespace: ualflix
+  labels:
+    app: mongodb
+    component: init
+spec:
+  template:
+    metadata:
+      labels:
+        app: mongodb-init
+    spec:
+      restartPolicy: OnFailure
+      containers:
+      - name: mongodb-init
+        image: mongo:6.0
+        command:
+        - /bin/bash
+        - -c
+        - |
+          echo "Aguardando MongoDB pods ficarem prontos..."
+          for i in {0..2}; do
+            while ! mongosh --host mongodb-$i.mongodb-headless.ualflix.svc.cluster.local:27017 --eval "print('MongoDB $i ready')" --quiet; do
+              echo "Aguardando mongodb-$i..."
+              sleep 5
+            done
+          done
+          
+          echo "Inicializando Replica Set..."
+          mongosh --host mongodb-0.mongodb-headless.ualflix.svc.cluster.local:27017 --eval "
+          rs.initiate({
+            _id: 'ualflix-replica-set',
+            members: [
+              { _id: 0, host: 'mongodb-0.mongodb-headless.ualflix.svc.cluster.local:27017', priority: 2 },
+              { _id: 1, host: 'mongodb-1.mongodb-headless.ualflix.svc.cluster.local:27017', priority: 1 },
+              { _id: 2, host: 'mongodb-2.mongodb-headless.ualflix.svc.cluster.local:27017', priority: 1 }
+            ]
+          });
+          
+          sleep(10);
+          
+          // Aguardar primary election
+          while(true) {
+            var status = rs.status();
+            var primary = status.members.find(m => m.state === 1);
+            if(primary) {
+              print('Primary elected:', primary.name);
+              break;
+            }
+            print('Aguardando primary election...');
+            sleep(2);
+          }
+          
+          // Criar usuário admin
+          db.getSiblingDB('admin').createUser({
+            user: 'admin',
+            pwd: 'password',
+            roles: [{ role: 'root', db: 'admin' }]
+          });
+          
+          // Criar usuário da aplicação
+          db.getSiblingDB('admin').createUser({
+            user: 'ualflix',
+            pwd: 'password',
+            roles: [
+              { role: 'readWrite', db: 'ualflix' },
+              { role: 'dbAdmin', db: 'ualflix' }
+            ]
+          });
+          
+          // Setup da base de dados da aplicação
+          use ualflix;
+          
+          // Criar coleções
+          db.createCollection('users');
+          db.createCollection('videos');
+          db.createCollection('video_views');
+          db.createCollection('replication_test');
+          
+          // Criar índices
+          db.users.createIndex({ 'username': 1 }, { unique: true });
+          db.users.createIndex({ 'email': 1 });
+          db.videos.createIndex({ 'user_id': 1 });
+          db.videos.createIndex({ 'status': 1 });
+          db.videos.createIndex({ 'upload_date': -1 });
+          db.video_views.createIndex({ 'video_id': 1 });
+          
+          // Inserir usuário admin
+          db.users.insertOne({
+            username: 'admin',
+            email: 'admin@ualflix.com',
+            password: 'pbkdf2:sha256:260000\$5fGQQvXhm0XKU6iF\$1d1c65c1f0ad1c02b20e9c1e5f9a4b0c8d9e7f6g5h4i3j2k1l0m9n8o7p6q5r4s3t2u1v0w9x8y7z6a5b4c3d2e1f0',
+            is_admin: true,
+            created_at: new Date(),
+            updated_at: new Date()
+          });
+          
+          print('MongoDB Replica Set inicializado com sucesso!');
+          print('FUNCIONALIDADE 5: Estratégias de Replicação de Dados - Implementada');
+          " --quiet

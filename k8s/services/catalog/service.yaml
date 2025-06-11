@@ -1,0 +1,18 @@
+# SERVIÇO DO CATALOG
+apiVersion: v1
+kind: Service
+metadata:
+  name: catalog-service
+  namespace: ualflix
+  labels:
+    app: catalog-service
+    tier: backend
+spec:
+  selector:
+    app: catalog-service
+  ports:
+  - port: 8000
+    targetPort: 8000
+    protocol: TCP
+    name: http
+  type: ClusterIP

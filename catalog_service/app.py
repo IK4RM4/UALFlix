@@ -1,6 +1,6 @@
 from flask import Flask, request, jsonify
 from flask_cors import CORS
-from db import get_db_connection
+from db_mongodb import get_mongodb_manager, with_write_db, with_read_db
 from prometheus_flask_exporter import PrometheusMetrics
 import os
 import time
@@ -8,7 +8,8 @@ import logging
 import json
 import pika
 import requests
-
+from datetime import datetime
+from bson import ObjectId
 
 # Configuração de logging
 logging.basicConfig(level=logging.INFO)
@@ -60,7 +61,7 @@ def send_to_processing_queue(video_data):
     try:
         connection, channel = get_rabbitmq_connection()
         if channel:
-            message = json.dumps(video_data)
+            message = json.dumps(video_data, default=str)  # default=str para ObjectId
             channel.basic_publish(
                 exchange='',
                 routing_key='video_processing',
@@ -88,23 +89,174 @@ def validate_user_token(token):
         logger.error(f"Erro ao validar token: {e}")
     return None
 
+@with_write_db
+def create_video_record(db, title, description, filename, url, user_id):
+    """Cria registro do vídeo no MongoDB"""
+    video_doc = {
+        'title': title,
+        'description': description,
+        'filename': filename,
+        'url': url,
+        'user_id': user_id,
+        'upload_date': datetime.utcnow(),
+        'view_count': 0,
+        'status': 'processing',
+        'duration': 0,
+        'file_size': 0,
+        'thumbnail_path': None
+    }
+    
+    result = db.videos.insert_one(video_doc)
+    return result.inserted_id
+
+@with_read_db
+def get_videos_list(db, user_id=None, limit=None):
+    """Obtém lista de vídeos"""
+    filter_doc = {}
+    if user_id:
+        filter_doc['user_id'] = user_id
+    
+    # Pipeline de agregação para incluir informações do usuário
+    pipeline = [
+        {'$match': filter_doc},
+        {
+            '$lookup': {
+                'from': 'users',
+                'localField': 'user_id',
+                'foreignField': '_id',
+                'as': 'user_info'
+            }
+        },
+        {
+            '$addFields': {
+                'uploaded_by': {
+                    '$ifNull': [
+                        {'$arrayElemAt': ['$user_info.username', 0]},
+                        'Unknown'
+                    ]
+                }
+            }
+        },
+        {'$project': {'user_info': 0}},  # Remove campo temporário
+        {'$sort': {'upload_date': -1}}
+    ]
+    
+    if limit:
+        pipeline.append({'$limit': limit})
+    
+    videos = list(db.videos.aggregate(pipeline))
+    
+    # Converter ObjectId para string
+    for video in videos:
+        video['_id'] = str(video['_id'])
+        if video.get('user_id'):
+            video['user_id'] = str(video['user_id'])
+    
+    return videos
+
+@with_read_db
+def get_video_by_id(db, video_id):
+    """Obtém vídeo por ID"""
+    try:
+        # Pipeline de agregação para incluir informações do usuário
+        pipeline = [
+            {'$match': {'_id': ObjectId(video_id)}},
+            {
+                '$lookup': {
+                    'from': 'users',
+                    'localField': 'user_id',
+                    'foreignField': '_id',
+                    'as': 'user_info'
+                }
+            },
+            {
+                '$addFields': {
+                    'uploaded_by': {
+                        '$ifNull': [
+                            {'$arrayElemAt': ['$user_info.username', 0]},
+                            'Unknown'
+                        ]
+                    }
+                }
+            },
+            {'$project': {'user_info': 0}}
+        ]
+        
+        result = list(db.videos.aggregate(pipeline))
+        
+        if result:
+            video = result[0]
+            video['_id'] = str(video['_id'])
+            if video.get('user_id'):
+                video['user_id'] = str(video['user_id'])
+            return video
+        
+        return None
+        
+    except Exception as e:
+        logger.error(f"Erro ao buscar vídeo {video_id}: {e}")
+        return None
+
+@with_write_db
+def increment_view_count(db, video_id, user_id=None):
+    """Incrementa contador de visualizações"""
+    try:
+        # Atualizar contador de visualizações
+        db.videos.update_one(
+            {'_id': ObjectId(video_id)},
+            {'$inc': {'view_count': 1}}
+        )
+        
+        # Registrar visualização se usuário logado
+        if user_id:
+            view_doc = {
+                'video_id': ObjectId(video_id),
+                'user_id': ObjectId(user_id) if user_id != 'anonymous' else None,
+                'view_date': datetime.utcnow(),
+                'watch_duration': 0
+            }
+            db.video_views.insert_one(view_doc)
+        
+        return True
+        
+    except Exception as e:
+        logger.error(f"Erro ao incrementar visualização: {e}")
+        return False
+
 @app.route('/health', methods=['GET'])
 def health_check():
     try:
-        conn = get_db_connection()
-        conn.close()
-        return jsonify({"status": "healthy", "db_connection": "ok"}), 200
+        manager = get_mongodb_manager()
+        db = manager.get_read_database()
+        
+        # Ping MongoDB
+        db.command('ping')
+        
+        # Contar vídeos
+        videos_count = db.videos.count_documents({})
+        
+        return jsonify({
+            "status": "healthy", 
+            "service": "catalog",
+            "database": "mongodb",
+            "videos_count": videos_count
+        }), 200
+        
     except Exception as e:
         logger.error(f"Erro na verificação de saúde: {e}")
-        return jsonify({"status": "unhealthy", "db_connection": "failed"}), 500
+        return jsonify({
+            "status": "unhealthy", 
+            "database": "mongodb_failed",
+            "error": str(e)
+        }), 500
 
 @app.route('/upload', methods=['POST'])
 def upload_video():
     try:
-        
         content_length = request.content_length
         if content_length:
             logger.info(f"Recebendo upload de {content_length / (1024*1024):.2f} MB")
+        
         # Validar token do usuário
         token = request.headers.get('X-Session-Token')
         if not token:
@@ -124,23 +276,21 @@ def upload_video():
             filepath = os.path.join(VIDEO_FOLDER, safe_filename)
             file.save(filepath)
 
-            # Gerar a URL (caminho para acessar o vídeo depois)
+            # Gerar a URL
             url = f"/stream/{safe_filename}"
 
-            conn = get_db_connection()
-            cur = conn.cursor()
-            cur.execute(
-                "INSERT INTO videos (title, description, filename, url, user_id) VALUES (%s, %s, %s, %s, %s) RETURNING id",
-                (title, description, safe_filename, url, user['id'])
+            # Criar registro no MongoDB
+            video_id = create_video_record(
+                title=title,
+                description=description,
+                filename=safe_filename,
+                url=url,
+                user_id=ObjectId(user['id'])
             )
-            video_id = cur.fetchone()[0]
-            conn.commit()
-            cur.close()
-            conn.close()
 
             # Enviar para fila de processamento
             video_data = {
-                'id': video_id,
+                'id': str(video_id),
                 'filename': safe_filename,
                 'title': title,
                 'user_id': user['id'],
@@ -152,10 +302,11 @@ def upload_video():
                 "message": "Video uploaded successfully!",
                 "filename": safe_filename,
                 "url": url,
-                "video_id": video_id
+                "video_id": str(video_id)
             }), 200
         else:
             return jsonify({"error": "No file uploaded"}), 400
+            
     except Exception as e:
         logger.error(f"Erro no upload: {e}")
         return jsonify({"error": str(e)}), 500
@@ -168,80 +319,72 @@ def list_videos():
         user_filter = request.args.get('user_only', 'false').lower() == 'true'
         
         user = None
+        user_id = None
+        
         if token:
             user = validate_user_token(token)
+            if user and user_filter:
+                user_id = ObjectId(user['id'])
 
-        conn = get_db_connection()
-        cur = conn.cursor()
+        videos = get_videos_list(user_id=user_id)
         
-        if user_filter and user:
-            # Mostrar apenas vídeos do usuário
-            cur.execute("""
-                SELECT v.id, v.title, v.description, v.filename, v.url, v.upload_date, u.username 
-                FROM videos v 
-                LEFT JOIN users u ON v.user_id = u.id 
-                WHERE v.user_id = %s
-                ORDER BY v.upload_date DESC
-            """, (user['id'],))
-        else:
-            # Mostrar todos os vídeos
-            cur.execute("""
-                SELECT v.id, v.title, v.description, v.filename, v.url, v.upload_date, u.username 
-                FROM videos v 
-                LEFT JOIN users u ON v.user_id = u.id 
-                ORDER BY v.upload_date DESC
-            """)
-        
-        videos = cur.fetchall()
-        cur.close()
-        conn.close()
-
+        # Converter para formato esperado pelo frontend
         videos_list = []
         for video in videos:
             video_data = {
-                'id': video[0],
-                'title': video[1],
-                'description': video[2],
-                'filename': video[3],
-                'url': video[4],
-                'upload_date': video[5].isoformat() if video[5] else None,
-                'uploaded_by': video[6] or 'Unknown'
+                'id': video['_id'],
+                'title': video['title'],
+                'description': video['description'],
+                'filename': video['filename'],
+                'url': video['url'],
+                'upload_date': video['upload_date'].isoformat() if video.get('upload_date') else None,
+                'uploaded_by': video.get('uploaded_by', 'Unknown'),
+                'view_count': video.get('view_count', 0),
+                'status': video.get('status', 'active'),
+                'duration': video.get('duration', 0)
             }
             videos_list.append(video_data)
         
         return jsonify(videos_list)
+        
     except Exception as e:
         logger.error(f"Erro ao listar vídeos: {e}")
         return jsonify({"error": str(e)}), 500
 
-@app.route('/videos/<int:video_id>', methods=['GET'])
+@app.route('/videos/<video_id>', methods=['GET'])
 def get_video(video_id):
     try:
-        conn = get_db_connection()
-        cur = conn.cursor()
-        cur.execute("""
-            SELECT v.id, v.title, v.description, v.filename, v.url, v.upload_date, u.username 
-            FROM videos v 
-            LEFT JOIN users u ON v.user_id = u.id 
-            WHERE v.id = %s
-        """, (video_id,))
-        video = cur.fetchone()
-        cur.close()
-        conn.close()
-
+        video = get_video_by_id(video_id)
+        
         if video:
+            # Incrementar contador de visualizações
+            token = request.headers.get('X-Session-Token')
+            user_id = None
+            
+            if token:
+                user = validate_user_token(token)
+                if user:
+                    user_id = user['id']
+            
+            increment_view_count(video_id, user_id)
+            
             video_data = {
-                'id': video[0],
-                'title': video[1],
-                'description': video[2],
-                'filename': video[3],
-                'url': video[4],
-                'upload_date': video[5].isoformat() if video[5] else None,
-                'uploaded_by': video[6] or 'Unknown'
+                'id': video['_id'],
+                'title': video['title'],
+                'description': video['description'],
+                'filename': video['filename'],
+                'url': video['url'],
+                'upload_date': video['upload_date'].isoformat() if video.get('upload_date') else None,
+                'uploaded_by': video.get('uploaded_by', 'Unknown'),
+                'view_count': video.get('view_count', 0),
+                'status': video.get('status', 'active'),
+                'duration': video.get('duration', 0)
             }
+            
             return jsonify(video_data)
         else:
             return jsonify({"error": "Video not found"}), 404
+            
     except Exception as e:
         logger.error(f"Erro ao buscar vídeo {video_id}: {e}")
         return jsonify({"error": str(e)}), 500
@@ -258,37 +401,66 @@ def get_my_videos():
         if not user:
             return jsonify({"error": "Token inválido ou expirado"}), 401
 
-        conn = get_db_connection()
-        cur = conn.cursor()
-        cur.execute("""
-            SELECT v.id, v.title, v.description, v.filename, v.url, v.upload_date, u.username 
-            FROM videos v 
-            LEFT JOIN users u ON v.user_id = u.id 
-            WHERE v.user_id = %s
-            ORDER BY v.upload_date DESC
-        """, (user['id'],))
+        videos = get_videos_list(user_id=ObjectId(user['id']))
         
-        videos = cur.fetchall()
-        cur.close()
-        conn.close()
-
         videos_list = []
         for video in videos:
             video_data = {
-                'id': video[0],
-                'title': video[1],
-                'description': video[2],
-                'filename': video[3],
-                'url': video[4],
-                'upload_date': video[5].isoformat() if video[5] else None,
-                'uploaded_by': video[6] or 'Unknown'
+                'id': video['_id'],
+                'title': video['title'],
+                'description': video['description'],
+                'filename': video['filename'],
+                'url': video['url'],
+                'upload_date': video['upload_date'].isoformat() if video.get('upload_date') else None,
+                'uploaded_by': video.get('uploaded_by', 'Unknown'),
+                'view_count': video.get('view_count', 0),
+                'status': video.get('status', 'active'),
+                'duration': video.get('duration', 0)
             }
             videos_list.append(video_data)
         
         return jsonify(videos_list)
+        
     except Exception as e:
         logger.error(f"Erro ao buscar vídeos do usuário: {e}")
         return jsonify({"error": str(e)}), 500
 
+@app.route('/stats', methods=['GET'])
+def get_catalog_stats():
+    """Estatísticas do catálogo"""
+    try:
+        manager = get_mongodb_manager()
+        
+        # Métricas da base de dados
+        db_metrics = manager.get_database_metrics()
+        
+        # Status do replica set
+        replica_status = manager.check_replica_set_status()
+        
+        # Teste de replicação
+        replication_test = manager.test_replication_lag()
+        
+        return jsonify({
+            "service": "catalog",
+            "database_metrics": db_metrics,
+            "replica_set_status": replica_status,
+            "replication_test": replication_test,
+            "timestamp": datetime.utcnow().isoformat()
+        })
+        
+    except Exception as e:
+        logger.error(f"Erro ao obter estatísticas: {e}")
+        return jsonify({"error": str(e)}), 500
+
 if __name__ == "__main__":
+    logger.info("🎬 Catalog Service com MongoDB iniciado")
+    
+    # Inicializar MongoDB
+    try:
+        manager = get_mongodb_manager()
+        manager.create_indexes()
+        logger.info("✅ MongoDB inicializado")
+    except Exception as e:
+        logger.error(f"❌ Erro ao inicializar MongoDB: {e}")
+    
     app.run(host="0.0.0.0", port=8000, debug=True)

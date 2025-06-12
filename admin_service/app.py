@@ -1,8 +1,3 @@
-#!/usr/bin/env python3
-"""
-UALFlix Admin Service - MongoDB Version
-Sistema de métricas automáticas com suporte a MongoDB Replica Set
-"""
 
 from flask import Flask, jsonify, request
 from flask_cors import CORS

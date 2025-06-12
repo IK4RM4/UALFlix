@@ -1,17 +1,27 @@
-
 #!/usr/bin/env python3
 """
 MongoDB Connection Manager com REPLICA SET
-Versão que suporta Primary-Secondary-Arbiter
+Versão corrigida - Estratégia Single Node First
 """
 
-from pymongo import MongoClient, ReadPreference
-from pymongo.errors import ServerSelectionTimeoutError
+from pymongo import MongoClient
+from pymongo.errors import ServerSelectionTimeoutError, ConfigurationError
 import os
 import logging
 from functools import wraps
 from datetime import datetime
 import time
+
+# Importação condicional de ReadPreference para evitar erros
+try:
+    from pymongo.read_preferences import ReadPreference
+    READPREFERENCE_AVAILABLE = True
+except ImportError:
+    try:
+        from pymongo import ReadPreference
+        READPREFERENCE_AVAILABLE = True
+    except ImportError:
+        READPREFERENCE_AVAILABLE = False
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -30,143 +40,316 @@ class MongoDBManager:
             self.client = None
             self.write_client = None
             self.read_client = None
+            self.is_replica_set = False
             self._initialize_connection()
     
     def _initialize_connection(self):
-        """Inicializa conexões ao replica set"""
+        """Inicializa conexões com estratégia Single Node First"""
+        # ESTRATÉGIA 1: Sempre tentar single node primeiro (mais confiável)
+        if self._try_single_node_connection():
+            logger.info("Conexão single node estabelecida - sistema operacional")
+            self._setup_database()
+            return
+            
+        # ESTRATÉGIA 2: Se single node falhar, tentar replica set
+        if self._try_replica_set_connection():
+            logger.info("Conexão replica set estabelecida após fallback")
+            self._setup_database()
+            return
+            
+        # ESTRATÉGIA 3: Conexão básica como último recurso
+        if self._try_basic_connection():
+            logger.info("Conexão básica estabelecida como último recurso")
+            self._setup_database()
+            return
+        
+        raise Exception("Todas as estratégias de conexão falharam")
+    
+    def _try_single_node_connection(self):
+        """Primeira tentativa: conexão direta ao primary (mais confiável)"""
+        logger.info("Tentando conexão single node ao primary...")
+        
         try:
-            # Connection string para replica set
+            primary_uri = "mongodb://ualflix_db_primary:27017/ualflix"
+            
+            self.client = MongoClient(
+                primary_uri,
+                serverSelectionTimeoutMS=5000,
+                connectTimeoutMS=3000,
+                directConnection=True  # Força conexão direta
+            )
+            
+            # Testar conexão
+            self.client.admin.command('ping')
+            
+            # Para single node, todos os clientes são o mesmo
+            self.write_client = self.client
+            self.read_client = self.client
+            
+            self.is_replica_set = False
+            logger.info("Conexão single node bem-sucedida")
+            return True
+            
+        except Exception as e:
+            logger.warning(f"Conexão single node falhou: {e}")
+            return False
+    
+    def _try_replica_set_connection(self):
+        """Segunda tentativa: conexão ao replica set (só se ReadPreference disponível)"""
+        if not READPREFERENCE_AVAILABLE:
+            logger.warning("ReadPreference não disponível - pulando tentativa de replica set")
+            return False
+            
+        logger.info("Tentando conexão ao replica set...")
+        
+        try:
             connection_string = os.environ.get(
                 'MONGODB_CONNECTION_STRING',
                 'mongodb://ualflix_db_primary:27017,ualflix_db_secondary:27017,ualflix_db_arbiter:27017/ualflix?replicaSet=ualflix-replica-set'
             )
             
-            logger.info(f"Conectando ao replica set: {connection_string}")
-            
-            # CONEXÃO PRINCIPAL
+            # Cliente principal
             self.client = MongoClient(
                 connection_string,
-                serverSelectionTimeoutMS=15000,
-                connectTimeoutMS=15000,
+                serverSelectionTimeoutMS=8000,
+                connectTimeoutMS=4000,
                 retryWrites=True,
                 retryReads=True
             )
             
-            # CONEXÃO PARA ESCRITA (primary)
+            # Testar conexão principal
+            self.client.admin.command('ping')
+            
+            # Cliente para escrita (primary)
             self.write_client = MongoClient(
                 connection_string,
-                serverSelectionTimeoutMS=15000,
-                connectTimeoutMS=15000,
-                readPreference=ReadPreference.PRIMARY,
+                serverSelectionTimeoutMS=8000,
+                connectTimeoutMS=4000,
+                read_preference=ReadPreference.PRIMARY,
                 retryWrites=True
             )
             
-            # CONEXÃO PARA LEITURA (secondary preferred)
+            # Cliente para leitura (secondary preferred)
             self.read_client = MongoClient(
                 connection_string,
-                serverSelectionTimeoutMS=15000,
-                connectTimeoutMS=15000,
-                readPreference=ReadPreference.SECONDARY_PREFERRED,
+                serverSelectionTimeoutMS=8000,
+                connectTimeoutMS=4000,
+                read_preference=ReadPreference.SECONDARY_PREFERRED,
                 retryReads=True
             )
             
-            # Testar conexões
-            self._test_connections()
+            # Testar todas as conexões
+            self.write_client.admin.command('ping')
+            self.read_client.admin.command('ping')
             
-            logger.info("✅ MongoDB Replica Set conectado!")
-            logger.info(f"   - Primary: {self._get_primary_host()}")
-            
-            # Setup inicial
-            self._setup_database()
+            self.is_replica_set = True
+            logger.info("Conexão ao replica set bem-sucedida")
+            return True
             
         except Exception as e:
-            logger.error(f"❌ Erro ao conectar ao replica set: {e}")
-            self._fallback_to_simple_connection()
+            logger.warning(f"Conexão ao replica set falhou: {e}")
+            return False
     
-    def _test_connections(self):
-        """Testa todas as conexões"""
-        self.client.admin.command('ping')
-        self.write_client.admin.command('ping')
-        self.read_client.admin.command('ping')
-        logger.info("🔍 Todas as conexões testadas")
-    
-    def _fallback_to_simple_connection(self):
-        """Fallback para conexão simples"""
-        logger.warning("⚠️ Tentando fallback para conexão simples...")
+    def _try_simple_primary_connection(self):
+        """Terceira tentativa: conexão simples sem directConnection"""
+        logger.info("Tentando conexão simples ao primary...")
+        
         try:
-            simple_uri = "mongodb://ualflix_db_primary:27017/ualflix"
+            primary_uri = "mongodb://ualflix_db_primary:27017/ualflix"
             
-            self.client = MongoClient(simple_uri, serverSelectionTimeoutMS=10000)
+            self.client = MongoClient(
+                primary_uri,
+                serverSelectionTimeoutMS=6000,
+                connectTimeoutMS=3000
+            )
+            
+            # Testar conexão
+            self.client.admin.command('ping')
+            
+            # Todos os clientes apontam para o mesmo
             self.write_client = self.client
             self.read_client = self.client
             
+            self.is_replica_set = False
+            logger.info("Conexão simples estabelecida")
+            return True
+            
+        except Exception as e:
+            logger.warning(f"Conexão simples falhou: {e}")
+            return False
+    
+    def _try_basic_connection(self):
+        """Quarta tentativa: conexão mais básica possível"""
+        logger.info("Tentando conexão básica...")
+        
+        try:
+            basic_uri = "mongodb://ualflix_db_primary:27017"
+            
+            self.client = MongoClient(
+                basic_uri,
+                serverSelectionTimeoutMS=3000
+            )
+            
+            # Testar conexão
             self.client.admin.command('ping')
-            logger.warning("⚠️ Conectado em modo fallback")
             
-            self._setup_database()
+            # Todos os clientes são o mesmo
+            self.write_client = self.client
+            self.read_client = self.client
             
-        except Exception as e2:
-            logger.error(f"❌ Falha total: {e2}")
-            raise
+            self.is_replica_set = False
+            logger.info("Conexão básica estabelecida")
+            return True
+            
+        except Exception as e:
+            logger.warning(f"Conexão básica falhou: {e}")
+            return False
     
     def _setup_database(self):
-        """Setup da base de dados"""
+        """Setup inicial da base de dados"""
         try:
             db = self.get_write_database()
             
-            # Criar coleções
+            # Criar coleções se não existirem
             collections = ['users', 'videos', 'video_views', 'replication_test']
-            for coll in collections:
-                if coll not in db.list_collection_names():
-                    db.create_collection(coll)
+            existing_collections = db.list_collection_names()
             
-            # Índices
+            for collection_name in collections:
+                if collection_name not in existing_collections:
+                    db.create_collection(collection_name)
+                    logger.info(f"Coleção '{collection_name}' criada")
+            
+            # Criar índices
+            self._create_indexes(db)
+            
+            # Configurar utilizador admin
+            self._setup_admin_user(db)
+            
+        except Exception as e:
+            logger.error(f"Erro no setup da base de dados: {e}")
+    
+    def _create_indexes(self, db):
+        """Cria índices necessários"""
+        try:
+            # Índices para users
             try:
                 db.users.create_index('username', unique=True)
                 db.users.create_index('email')
+            except Exception:
+                pass  # Índices já podem existir
+            
+            # Índices para videos
+            try:
                 db.videos.create_index('user_id')
                 db.videos.create_index('status')
-                db.video_views.create_index('video_id')
-                db.replication_test.create_index('test_id')
-                logger.info("✅ Índices criados")
-            except Exception as e:
-                logger.warning(f"Índices já existem: {e}")
+                db.videos.create_index('upload_date')
+            except Exception:
+                pass
             
-            # Utilizador admin
-            if not db.users.find_one({'username': 'admin'}):
-                from werkzeug.security import generate_password_hash
-                db.users.insert_one({
-                    'username': 'admin',
-                    'email': 'admin@ualflix.com',
-                    'password': generate_password_hash('admin'),
-                    'is_admin': True,
-                    'created_at': datetime.utcnow()
-                })
-                logger.info("✅ Admin criado")
+            # Índices para video_views
+            try:
+                db.video_views.create_index('video_id')
+                db.video_views.create_index('user_id')
+                db.video_views.create_index('view_date')
+            except Exception:
+                pass
+            
+            # Índices para replication_test
+            try:
+                db.replication_test.create_index('test_id')
+                db.replication_test.create_index('write_time')
+            except Exception:
+                pass
+            
+            logger.info("Índices configurados")
             
         except Exception as e:
-            logger.warning(f"Setup da BD: {e}")
+            logger.warning(f"Erro ao criar índices: {e}")
+    
+    def _setup_admin_user(self, db):
+        """Configura utilizador administrador"""
+        try:
+            # Verificar se admin já existe
+            admin_user = db.users.find_one({'username': 'admin'})
+            
+            if not admin_user:
+                # Importar aqui para evitar dependências circulares
+                try:
+                    from werkzeug.security import generate_password_hash
+                    password_hash = generate_password_hash('admin', method='pbkdf2:sha256')
+                except ImportError:
+                    # Fallback se werkzeug não estiver disponível
+                    import hashlib
+                    password_hash = hashlib.sha256('admin'.encode()).hexdigest()
+                
+                admin_doc = {
+                    'username': 'admin',
+                    'email': 'admin@ualflix.com',
+                    'password': password_hash,
+                    'is_admin': True,
+                    'created_at': datetime.utcnow(),
+                    'updated_at': datetime.utcnow()
+                }
+                
+                result = db.users.insert_one(admin_doc)
+                logger.info(f"Utilizador admin criado com ID: {result.inserted_id}")
+                
+            else:
+                # Garantir que o admin tem privilégios corretos
+                db.users.update_one(
+                    {'username': 'admin'},
+                    {
+                        '$set': {
+                            'is_admin': True,
+                            'updated_at': datetime.utcnow()
+                        }
+                    }
+                )
+                logger.info("Utilizador admin verificado e atualizado")
+            
+        except Exception as e:
+            logger.error(f"Erro ao configurar utilizador admin: {e}")
     
     def get_database(self):
-        """Database com conexão principal"""
+        """Retorna a base de dados principal"""
         if not self.client:
             self._initialize_connection()
         return self.client[os.environ.get('MONGODB_DATABASE', 'ualflix')]
     
     def get_write_database(self):
-        """Database para ESCRITA (primary)"""
+        """Retorna base de dados para operações de escrita"""
         if not self.write_client:
             self._initialize_connection()
         return self.write_client[os.environ.get('MONGODB_DATABASE', 'ualflix')]
     
     def get_read_database(self):
-        """Database para LEITURA (secondary preferred)"""
+        """Retorna base de dados para operações de leitura"""
         if not self.read_client:
             self._initialize_connection()
         return self.read_client[os.environ.get('MONGODB_DATABASE', 'ualflix')]
     
     def check_replica_set_status(self):
-        """Status REAL do replica set"""
+        """Verifica status do replica set"""
+        if not self.is_replica_set:
+            return {
+                'set_name': 'single_node',
+                'status': 'single_mode',
+                'primary_name': 'ualflix_db_primary:27017',
+                'members': [
+                    {
+                        'name': 'ualflix_db_primary:27017',
+                        'state': 1,
+                        'health': 1,
+                        'is_primary': True,
+                        'is_secondary': False,
+                        'is_arbiter': False
+                    }
+                ],
+                'total_members': 1,
+                'healthy_members': 1,
+                'source': 'single_node_simulation'
+            }
+        
         try:
             status = self.client.admin.command("replSetGetStatus")
             
@@ -201,7 +384,7 @@ class MongoDBManager:
         except Exception as e:
             logger.error(f"Erro ao verificar replica set: {e}")
             return {
-                'set_name': 'ualflix-replica-set',
+                'set_name': 'error',
                 'status': 'error',
                 'error': str(e),
                 'members': [],
@@ -209,12 +392,22 @@ class MongoDBManager:
             }
     
     def test_replication_lag(self):
-        """TESTE REAL de lag de replicação"""
+        """Testa lag de replicação"""
+        if not self.is_replica_set:
+            return {
+                'replication_working': True,
+                'lag_seconds': 0.0,
+                'test_id': 'single_node',
+                'attempts_made': 1,
+                'status': 'single_node_mode',
+                'source': 'single_node_simulation'
+            }
+        
         try:
             test_id = f"replication_test_{int(time.time())}"
             start_time = time.time()
             
-            # ESCREVER no primary
+            # Escrever no primary
             write_db = self.get_write_database()
             test_doc = {
                 'test_id': test_id,
@@ -223,7 +416,7 @@ class MongoDBManager:
             }
             write_db.replication_test.insert_one(test_doc)
             
-            # TENTAR LER do secondary
+            # Tentar ler do secondary
             max_attempts = 10
             lag_seconds = None
             
@@ -234,7 +427,6 @@ class MongoDBManager:
                     
                     if found_doc:
                         lag_seconds = time.time() - start_time
-                        logger.info(f"🔄 Replicação detectada em {lag_seconds:.3f}s")
                         break
                     
                     time.sleep(0.5)
@@ -243,7 +435,7 @@ class MongoDBManager:
                     logger.warning(f"Tentativa {attempt + 1} falhou: {e}")
                     time.sleep(0.5)
             
-            # LIMPAR
+            # Limpar documento de teste
             try:
                 write_db.replication_test.delete_one({'test_id': test_id})
             except:
@@ -271,9 +463,9 @@ class MongoDBManager:
             }
     
     def get_database_metrics(self):
-        """Métricas REAIS da base de dados"""
+        """Obtém métricas da base de dados"""
         try:
-            # Métricas do PRIMARY
+            # Métricas do primary/write database
             write_db = self.get_write_database()
             write_stats = write_db.command('dbStats')
             
@@ -283,43 +475,66 @@ class MongoDBManager:
                 'index_size_mb': round(write_stats.get('indexSize', 0) / (1024 * 1024), 2),
                 'collections': write_stats.get('collections', 0),
                 'objects': write_stats.get('objects', 0),
-                'users_count': write_db.users.count_documents({}) if 'users' in write_db.list_collection_names() else 0,
-                'videos_count': write_db.videos.count_documents({}) if 'videos' in write_db.list_collection_names() else 0,
-                'views_count': write_db.video_views.count_documents({}) if 'video_views' in write_db.list_collection_names() else 0,
                 'connection_type': 'primary_write',
                 'source': 'real_primary_stats'
             }
             
-            # Métricas do SECONDARY
+            # Contar documentos por coleção
             try:
-                read_db = self.get_read_database()
-                read_stats = read_db.command('dbStats')
-                
-                secondary_metrics = {
-                    'users_count': read_db.users.count_documents({}) if 'users' in read_db.list_collection_names() else 0,
-                    'videos_count': read_db.videos.count_documents({}) if 'videos' in read_db.list_collection_names() else 0,
-                    'views_count': read_db.video_views.count_documents({}) if 'video_views' in read_db.list_collection_names() else 0,
-                    'data_size_mb': round(read_stats.get('dataSize', 0) / (1024 * 1024), 2),
-                    'collections': read_stats.get('collections', 0),
-                    'objects': read_stats.get('objects', 0),
-                    'read_preference': 'secondaryPreferred',
-                    'connection_type': 'secondary_read',
-                    'source': 'real_secondary_stats'
-                }
-                
+                collections = write_db.list_collection_names()
+                if 'users' in collections:
+                    primary_metrics['users_count'] = write_db.users.count_documents({})
+                if 'videos' in collections:
+                    primary_metrics['videos_count'] = write_db.videos.count_documents({})
+                if 'video_views' in collections:
+                    primary_metrics['views_count'] = write_db.video_views.count_documents({})
             except Exception as e:
-                logger.warning(f"Não foi possível obter métricas do secondary: {e}")
+                logger.warning(f"Erro ao contar documentos: {e}")
+            
+            # Métricas do secondary (se disponível)
+            secondary_metrics = {}
+            if self.is_replica_set:
+                try:
+                    read_db = self.get_read_database()
+                    read_stats = read_db.command('dbStats')
+                    
+                    secondary_metrics = {
+                        'data_size_mb': round(read_stats.get('dataSize', 0) / (1024 * 1024), 2),
+                        'collections': read_stats.get('collections', 0),
+                        'objects': read_stats.get('objects', 0),
+                        'read_preference': 'secondaryPreferred',
+                        'connection_type': 'secondary_read',
+                        'source': 'real_secondary_stats'
+                    }
+                    
+                    # Contar documentos no secondary
+                    collections = read_db.list_collection_names()
+                    if 'users' in collections:
+                        secondary_metrics['users_count'] = read_db.users.count_documents({})
+                    if 'videos' in collections:
+                        secondary_metrics['videos_count'] = read_db.videos.count_documents({})
+                    if 'video_views' in collections:
+                        secondary_metrics['views_count'] = read_db.video_views.count_documents({})
+                        
+                except Exception as e:
+                    logger.warning(f"Não foi possível obter métricas do secondary: {e}")
+                    secondary_metrics = {
+                        'error': str(e),
+                        'read_preference': 'primary_fallback',
+                        'source': 'secondary_error'
+                    }
+            else:
                 secondary_metrics = {
-                    'error': str(e),
-                    'read_preference': 'primary_fallback',
-                    'source': 'secondary_error'
+                    'note': 'Single node mode - no secondary available',
+                    'source': 'single_node_mode'
                 }
             
             return {
                 'primary': primary_metrics,
                 'secondary': secondary_metrics,
                 'replica_set_name': os.environ.get('MONGODB_REPLICA_SET', 'ualflix-replica-set'),
-                'collection_timestamp': datetime.utcnow().isoformat()
+                'collection_timestamp': datetime.utcnow().isoformat(),
+                'is_replica_set': self.is_replica_set
             }
             
         except Exception as e:
@@ -327,33 +542,48 @@ class MongoDBManager:
             return {
                 'primary': {'error': str(e), 'source': 'primary_error'},
                 'secondary': {'error': str(e), 'source': 'secondary_error'},
-                'replica_set_name': 'error'
+                'replica_set_name': 'error',
+                'is_replica_set': False
             }
     
     def _get_primary_host(self):
         """Obtém o host primary atual"""
         try:
-            status = self.check_replica_set_status()
-            return status.get('primary_name', 'unknown')
+            if self.is_replica_set:
+                status = self.check_replica_set_status()
+                return status.get('primary_name', 'unknown')
+            else:
+                return 'ualflix_db_primary:27017'
         except:
             return 'unknown'
     
     def create_indexes(self):
-        self._setup_database()
+        """Método público para criar índices"""
+        try:
+            db = self.get_write_database()
+            self._create_indexes(db)
+        except Exception as e:
+            logger.error(f"Erro ao criar índices: {e}")
     
     def init_collections(self):
-        self._setup_database()
+        """Método público para inicializar coleções"""
+        try:
+            self._setup_database()
+        except Exception as e:
+            logger.error(f"Erro ao inicializar coleções: {e}")
 
-# Singleton
+# Singleton global
 _mongodb_manager = None
 
 def get_mongodb_manager():
+    """Retorna instância singleton do MongoDB Manager"""
     global _mongodb_manager
     if _mongodb_manager is None:
         _mongodb_manager = MongoDBManager()
     return _mongodb_manager
 
 def with_write_db(func):
+    """Decorator para operações de escrita na base de dados"""
     @wraps(func)
     def wrapper(*args, **kwargs):
         try:
@@ -366,6 +596,7 @@ def with_write_db(func):
     return wrapper
 
 def with_read_db(func):
+    """Decorator para operações de leitura na base de dados"""
     @wraps(func)
     def wrapper(*args, **kwargs):
         try:

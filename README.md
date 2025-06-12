@@ -1,322 +1,489 @@
-# 🎬 UALFlix - Resumo Final do Setup Kubernetes
+# UALFlix - Projeto de Arquitetura Avançada de Sistemas
 
-## 📋 O que foi criado/atualizado
+## Resumo do Projeto
 
-Criei uma solução completa para deploy do UALFlix no Kubernetes com 3 nós, usando NGINX como roteador principal. Aqui está o resumo:
+O UALFlix é uma plataforma distribuída de streaming de vídeo que implementa conceitos avançados de arquitetura de sistemas, incluindo sistemas distribuídos, clusters de computadores, virtualização, computação em nuvem e estratégias de replicação de dados. Este projeto demonstra as sete funcionalidades obrigatórias definidas nos requisitos da disciplina de Arquitetura Avançada de Sistemas.
 
-### 📁 Arquivos Principais Criados:
+## Arquitetura do Sistema
 
-1. **Guia de Setup**: Instruções passo-a-passo completas
-2. **NGINX Gateway**: Configuração como roteador principal com load balancing
-3. **Makefile Avançado**: Comandos automáticos para todo o processo
-4. **Script de Setup**: Automatização completa (`setup-ualflix-k8s.sh`)
-5. **MongoDB StatefulSet**: Configurado para 3 réplicas distribuídas
-6. **Troubleshooting Guide**: Resolução de problemas comuns
-
-### 🏗️ Arquitetura Implementada:
+### Diagrama da Arquitetura
 
 ```
-┌─────────────────────────────────────────────────────────────┐
-│                    KUBERNETES CLUSTER (3 NODES)             │
-│                                                             │
-│  ┌──────────────┐  ┌──────────────┐  ┌──────────────┐      │
-│  │    NODE 1    │  │    NODE 2    │  │    NODE 3    │      │
-│  │              │  │              │  │              │      │
-│  │ NGINX Gateway│  │   Frontend   │  │   MongoDB    │      │
-│  │ Auth Service │  │ Catalog Svc  │  │ RabbitMQ     │      │
-│  │ Streaming    │  │ Admin Svc    │  │ Processor    │      │
-│  └──────────────┘  └──────────────┘  └──────────────┘      │
-│                                                             │
-│           ↓ NGINX Load Balancer (Roteador Principal)        │
-│                                                             │
-│  Frontend → /api/auth/ → Auth Service                       │
-│          → /api/      → Catalog Service                     │
-│          → /api/admin/→ Admin Service                       │
-│          → /stream/   → Streaming Service                   │
-│                                                             │
-└─────────────────────────────────────────────────────────────┘
+┌─────────────────────────────────────────────────────────────────┐
+│                        CLUSTER KUBERNETES                       │
+│                          (3 Nós)                               │
+├─────────────────────────────────────────────────────────────────┤
+│                                                                 │
+│  ┌──────────────┐  ┌──────────────┐  ┌──────────────┐         │
+│  │    NÓ 1      │  │    NÓ 2      │  │    NÓ 3      │         │
+│  │              │  │              │  │              │         │
+│  │ Frontend     │  │ Auth Service │  │ MongoDB      │         │
+│  │ NGINX LB     │  │ Catalog Svc  │  │ Primary      │         │
+│  │ Prometheus   │  │ Admin Svc    │  │              │         │
+│  └──────────────┘  │ Streaming    │  │ MongoDB      │         │
+│                    │ Video Proc   │  │ Secondary    │         │
+│                    │ Grafana      │  │              │         │
+│                    │ RabbitMQ     │  │ MongoDB      │         │
+│                    └──────────────┘  │ Arbiter      │         │
+│                                      └──────────────┘         │
+│                                                                 │
+├─────────────────────────────────────────────────────────────────┤
+│                    FLUXO DE DADOS                               │
+└─────────────────────────────────────────────────────────────────┘
+
+    ┌─────────────┐    HTTP     ┌─────────────┐
+    │  Utilizador │ ────────────▶│   NGINX     │
+    │   (Browser) │◀────────────│Load Balancer│
+    └─────────────┘              └─────────────┘
+                                        │
+                  ┌─────────────────────┼─────────────────────┐
+                  │                     │                     │
+                  ▼                     ▼                     ▼
+          ┌─────────────┐       ┌─────────────┐       ┌─────────────┐
+          │  Frontend   │       │Auth Service │       │ Admin Panel │
+          │  (React)    │       │  (Flask)    │       │  (Flask)    │
+          └─────────────┘       └─────────────┘       └─────────────┘
+                  │                     │                     │
+                  │                     │                     │
+                  └─────────────────────┼─────────────────────┘
+                                        │
+                    ┌───────────────────┼───────────────────┐
+                    │                   │                   │
+                    ▼                   ▼                   ▼
+            ┌─────────────┐     ┌─────────────┐     ┌─────────────┐
+            │ Catalog Svc │     │Streaming Svc│     │Video Proc   │
+            │  (Upload)   │     │ (Delivery)  │     │(Processing) │
+            └─────────────┘     └─────────────┘     └─────────────┘
+                    │                   │                   ▲
+                    │                   │                   │
+                    ▼                   ▼                   │
+            ┌─────────────┐     ┌─────────────┐     ┌─────────────┐
+            │  RabbitMQ   │ ────▶│Video Storage│     │   Queue     │
+            │ (Mensagens) │      │ (Ficheiros) │     │ Processing  │
+            └─────────────┘     └─────────────┘     └─────────────┘
+                    │
+                    ▼
+        ┌───────────────────────────────────────────────┐
+        │            MONGODB REPLICA SET                 │
+        │                                               │
+        │  ┌─────────┐  ┌─────────┐  ┌─────────┐       │
+        │  │Primary  │◀─▶│Secondary│  │ Arbiter │       │
+        │  │(Escrita)│  │(Leitura)│  │(Eleição)│       │
+        │  └─────────┘  └─────────┘  └─────────┘       │
+        └───────────────────────────────────────────────┘
+                    ▲
+                    │ Métricas
+                    ▼
+        ┌───────────────────────────────────────────────┐
+        │         MONITORIZAÇÃO E MÉTRICAS               │
+        │                                               │
+        │  ┌─────────────┐      ┌─────────────┐         │
+        │  │ Prometheus  │ ────▶│  Grafana    │         │
+        │  │ (Coleta)    │      │(Dashboards) │         │
+        │  └─────────────┘      └─────────────┘         │
+        └───────────────────────────────────────────────┘
 ```
 
-## 🚀 Como usar (3 opções):
+### Componentes Principais
 
-### Opção 1: Script Automático (Mais Fácil)
+#### Serviços da Aplicação
+- **Serviço de Autenticação**: Gestão de utilizadores e sessões
+- **Serviço de Catálogo**: Gestão de metadados de vídeos e upload
+- **Serviço de Streaming**: Entrega de conteúdo com suporte a range requests
+- **Serviço de Administração**: Monitorização e gestão do sistema
+- **Processador de Vídeo**: Processamento assíncrono e geração de thumbnails
+
+#### Componentes de Infraestrutura
+- **MongoDB Replica Set**: Configuração Primary-Secondary-Arbiter para replicação
+- **RabbitMQ**: Fila de mensagens para processamento assíncrono
+- **NGINX**: Balanceador de carga e proxy reverso
+- **Prometheus**: Recolha de métricas e monitorização
+- **Grafana**: Visualização de performance e dashboards
+
+## Funcionalidades Implementadas
+
+### Funcionalidade 1: Tecnologias de Implementação de Sistemas Distribuídos
+O sistema implementa uma arquitetura de microserviços com comunicação REST API entre componentes. Os serviços são desenhados para independência e escalabilidade, utilizando filas de mensagens assíncronas para processamento desacoplado.
+
+**Detalhes de Implementação:**
+- Microserviços Python Flask com endpoints REST
+- Fila de mensagens RabbitMQ para workflow de processamento de vídeo
+- Service discovery através de redes de contentores
+- Comunicação inter-serviços com gestão de timeouts e retries
+
+### Funcionalidade 2: Implementação de Cluster de Computadores
+A aplicação executa num cluster Kubernetes com suporte para deployment multi-nó. A gestão de recursos e coordenação de nós é gerida através da orquestração do Kubernetes.
+
+**Detalhes de Implementação:**
+- Cluster Kubernetes com número configurável de nós
+- Distribuição de pods pelos nós do cluster
+- Failover automático e gestão de nós
+- Alocação de recursos e gestão de restrições
+
+### Funcionalidade 3: Virtualização de Computadores
+Todos os componentes são containerizados usando Docker, proporcionando isolamento e ambientes de deployment consistentes em diferentes plataformas.
+
+**Detalhes de Implementação:**
+- Contentores Docker para cada componente de serviço
+- Builds multi-stage para tamanhos de imagem otimizados
+- Volume mounting para armazenamento persistente de dados
+- Health checks de contentores e políticas de restart
+
+### Funcionalidade 4: Implementação na Cloud
+O sistema é desenhado para deployment cloud-native com suporte para escalamento horizontal e integração com fornecedores de cloud.
+
+**Detalhes de Implementação:**
+- Manifestos de deployment nativos do Kubernetes
+- Configuração de Horizontal Pod Autoscaler (HPA)
+- Capacidades de integração com armazenamento cloud
+- Gestão de configuração específica por ambiente
+
+### Funcionalidade 5: Estratégias de Replicação de Dados
+A implementação do replica set MongoDB proporciona redundância de dados e capacidades de escalamento de leitura.
+
+**Detalhes de Implementação:**
+- Configuração MongoDB Primary-Secondary-Arbiter
+- Failover automático com mecanismos de eleição
+- Roteamento de read preference para distribuição de carga
+- Monitorização de lag de replicação e alertas
+
+### Funcionalidade 6: Replicação de Serviços
+Balanceamento de carga e redundância de serviços garantem alta disponibilidade e tolerância a falhas.
+
+**Detalhes de Implementação:**
+- Balanceador de carga NGINX com múltiplas instâncias backend
+- Service mesh do Kubernetes para comunicação interna
+- Endpoints de health check para monitorização de serviços
+- Substituição automática de pods em caso de falha
+
+### Funcionalidade 7: Avaliação de Desempenho
+Monitorização abrangente e recolha de métricas proporcionam insights sobre performance e fiabilidade do sistema.
+
+**Detalhes de Implementação:**
+- Recolha de métricas Prometheus de todos os serviços
+- Dashboards Grafana para visualização
+- Métricas de performance personalizadas e regras de alertas
+- Monitorização de saúde do sistema em tempo real
+
+## Requisitos do Sistema
+
+### Requisitos Mínimos
+- Docker Engine 20.10+
+- Docker Compose 2.0+
+- 8GB RAM
+- 20GB espaço livre em disco
+- Linux, macOS, ou Windows com WSL2
+
+### Recomendado para Produção
+- Cluster Kubernetes com 3+ nós
+- 16GB RAM por nó
+- Armazenamento SSD para base de dados
+- Balanceador de carga para acesso externo
+
+## Instalação e Deployment
+
+### Início Rápido com Docker Compose
+
+1. Clonar o repositório:
 ```bash
-# Dar permissão de execução
-chmod +x setup-ualflix-k8s.sh
-
-# Executar setup completo
-./setup-ualflix-k8s.sh
-
-# Aguardar conclusão (~10-15 minutos)
-# URL será exibida no final
+git clone <repository-url>
+cd ualflix
 ```
 
-### Opção 2: Makefile (Controle por etapas)
+2. Iniciar todos os serviços:
 ```bash
-# Setup completo
-make demo
-
-# Ou passo a passo:
-make cluster-start    # Iniciar cluster com 3 nós
-make build           # Build das imagens Docker
-make deploy          # Deploy da aplicação
-make url             # Obter URLs de acesso
+docker-compose up -d
 ```
 
-### Opção 3: Manual (Seguir guia)
-Seguir o guia passo-a-passo que criei no primeiro artefato.
-
-## ✅ Funcionalidades Implementadas
-
-### FUNCIONALIDADE 1: Tecnologias de Sistemas Distribuídos
-- ✅ Microserviços em Python Flask
-- ✅ Comunicação REST entre serviços
-- ✅ Message Queue (RabbitMQ) para processamento assíncrono
-
-### FUNCIONALIDADE 2: Cluster de Computadores
-- ✅ Kubernetes com **3 nós** usando Minikube
-- ✅ Distribuição automática de pods pelos nós
-- ✅ Coordenação de recursos compartilhados
-- ✅ Adição/remoção sem interrupção (kubectl scale)
-
-### FUNCIONALIDADE 3: Virtualização
-- ✅ Containers Docker para cada componente
-- ✅ Pods Kubernetes para orquestração
-- ✅ Isolamento completo entre serviços
-- ✅ Volumes persistentes para dados
-
-### FUNCIONALIDADE 4: Implementação na Cloud
-- ✅ Deploy em ambiente Kubernetes (cloud-native)
-- ✅ Auto-scaling horizontal (HPA)
-- ✅ Elasticidade automática baseada em CPU/memória
-- ✅ Service Discovery automático
-
-### FUNCIONALIDADE 5: Estratégias de Replicação de Dados
-- ✅ **MongoDB Replica Set** com 3 instâncias
-- ✅ Distribuição pelos 3 nós do cluster
-- ✅ Replicação síncrona (primary-secondary)
-- ✅ Failover automático
-- ✅ Estratégias master-slave implementadas
-
-### FUNCIONALIDADE 6: Replicação de Serviços
-- ✅ **NGINX como Load Balancer principal**
-- ✅ Múltiplas réplicas de cada serviço
-- ✅ Distribuição de carga automática
-- ✅ Detecção de falhas e recuperação
-- ✅ Health checks automáticos
-- ✅ Session affinity quando necessário
-
-### FUNCIONALIDADE 7: Avaliação de Desempenho
-- ✅ Métricas automáticas com Prometheus
-- ✅ Dashboards visuais com Grafana
-- ✅ Monitoramento de latência e throughput
-- ✅ Alertas automáticos
-- ✅ Métricas de utilização de recursos
-
-## 🌐 URLs de Acesso Final
-
-Após o setup, você terá acesso a:
-
+3. Aguardar inicialização dos serviços (aproximadamente 2-3 minutos):
 ```bash
-# Aplicação Principal (NGINX Gateway)
-http://localhost:30080  # NodePort fixo
-# ou
-minikube service nginx-gateway --namespace ualflix
-
-# Prometheus (Métricas)
-http://localhost:30090
-# ou  
-minikube service prometheus-service --namespace ualflix
-
-# Grafana (Dashboards)
-http://localhost:30030
-# ou
-minikube service grafana-service --namespace ualflix
-# Login: admin/admin
-
-# Kubernetes Dashboard
-minikube dashboard
+docker-compose logs -f mongodb_replica_init
 ```
 
-## 🔧 Comandos Úteis Pós-Setup
+4. Aceder à aplicação:
+- Aplicação principal: http://localhost:8080
+- Dashboard admin: http://localhost:8080 (login como admin)
+- Métricas Prometheus: http://localhost:9090
+- Dashboards Grafana: http://localhost:3001 (admin/admin)
 
-### Verificar Status
+### Deployment Kubernetes
+
+Para deployment de produção com funcionalidade completa de cluster:
+
+1. Verificar disponibilidade do cluster Kubernetes:
 ```bash
-# Status geral do cluster
-kubectl get nodes
-kubectl get pods -n ualflix -o wide
+kubectl cluster-info
+```
 
-# Ver distribuição pelos nós
-kubectl get pods -n ualflix -o wide | awk '{print $1, $7}' | column -t
+2. Usar o Makefile fornecido para deployment automatizado:
+```bash
+# Iniciar cluster de 3 nós com Minikube
+make cluster-start
 
-# Métricas de recursos
+# Build e deploy de todos os serviços
+make build
+make deploy
+
+# Obter URLs de acesso
+make url
+```
+
+3. Deployment manual alternativo:
+```bash
+# Aplicar todos os manifestos Kubernetes
+kubectl apply -f k8s/namespace.yaml
+kubectl apply -f k8s/secrets.yaml
+kubectl apply -f k8s/database/
+kubectl apply -f k8s/messaging/
+kubectl apply -f k8s/services/
+kubectl apply -f k8s/frontend/
+kubectl apply -f k8s/ingress/
+kubectl apply -f k8s/monitoring/
+```
+
+## Configuração
+
+### Variáveis de Ambiente
+
+O sistema suporta configuração através de variáveis de ambiente:
+
+```bash
+# Configuração da Base de Dados
+MONGODB_CONNECTION_STRING=mongodb://ualflix_db_primary:27017,ualflix_db_secondary:27017/ualflix?replicaSet=ualflix-replica-set
+MONGODB_DATABASE=ualflix
+MONGODB_REPLICA_SET=ualflix-replica-set
+
+# Configuração da Fila
+QUEUE_HOST=queue_service
+QUEUE_USER=ualflix
+QUEUE_PASSWORD=ualflix_password
+
+# Segurança
+SECRET_KEY=your-secret-key-here
+
+# URLs dos Serviços
+AUTH_SERVICE_URL=http://authentication_service:8000
+```
+
+### Limites de Recursos
+
+As alocações de recursos padrão podem ser ajustadas nos manifestos Kubernetes:
+
+```yaml
+resources:
+  requests:
+    memory: "512Mi"
+    cpu: "250m"
+  limits:
+    memory: "1Gi"
+    cpu: "500m"
+```
+
+## Guia de Utilização
+
+### Operações de Utilizador
+
+1. **Registo de Utilizador**: Criar novas contas através da interface web
+2. **Upload de Vídeo**: Utilizadores autenticados podem fazer upload de ficheiros até 1GB
+3. **Streaming de Vídeo**: Reproduzir vídeos com suporte a download progressivo
+4. **Gestão de Vídeos**: Utilizadores podem visualizar e gerir o seu conteúdo
+
+### Operações Administrativas
+
+1. **Monitorização do Sistema**: Aceder a métricas em tempo real através do painel admin
+2. **Gestão de Serviços**: Monitorizar saúde dos serviços e reiniciar serviços falhados
+3. **Administração da Base de Dados**: Visualizar estado do replica set MongoDB e métricas
+4. **Análise de Performance**: Usar dashboards Grafana para insights detalhados
+
+### Endpoints da API
+
+#### Serviço de Autenticação (Porta 8000)
+```
+POST /register - Registo de utilizador
+POST /login - Autenticação de utilizador
+POST /validate - Validação de token
+POST /logout - Terminação de sessão
+GET /health - Verificação de saúde do serviço
+```
+
+#### Serviço de Catálogo (Porta 8000)
+```
+GET /videos - Listar todos os vídeos
+GET /videos/{id} - Obter detalhes de vídeo específico
+POST /upload - Upload de novo vídeo
+GET /my-videos - Listar vídeos do utilizador
+GET /health - Verificação de saúde do serviço
+```
+
+#### Serviço de Streaming (Porta 8001)
+```
+GET /stream/{filename} - Stream de conteúdo de vídeo
+GET /download/{filename} - Download de ficheiro de vídeo
+GET /info/{filename} - Obter informações do vídeo
+GET /list - Listar vídeos disponíveis
+GET /health - Verificação de saúde do serviço
+```
+
+#### Serviço de Administração (Porta 8002)
+```
+GET /api/admin/services - Obter estado dos serviços
+GET /api/admin/metrics/summary - Obter métricas do sistema
+GET /api/admin/metrics/mongodb - Obter métricas da base de dados
+GET /health - Verificação de saúde do serviço
+```
+
+## Monitorização e Métricas
+
+### Métricas Prometheus
+
+O sistema expõe várias métricas para monitorização:
+
+- **Saúde dos Serviços**: `up{job="service_name"}`
+- **Taxa de Requisições**: `http_requests_total`
+- **Tempo de Resposta**: `http_request_duration_seconds`
+- **Taxa de Erro**: `http_requests_total{status=~"4..|5.."}`
+- **Métricas da Base de Dados**: `ualflix_mongodb_*`
+- **Processamento de Vídeo**: `videos_processed_total`, `videos_failed_total`
+- **Recursos do Sistema**: `ualflix_system_cpu_percent`, `ualflix_system_memory_percent`
+
+### Dashboards Grafana
+
+Dashboards pré-configurados proporcionam visualização para:
+
+- Visão geral do sistema e saúde dos serviços
+- Análise de taxa de requisições e tempo de resposta
+- Monitorização de taxa de erro
+- Performance da base de dados e estado da replicação
+- Tendências de utilização de recursos
+- Métricas de processamento de vídeo
+
+### Gestão de Logs
+
+Os logs da aplicação estão disponíveis através do Docker/Kubernetes:
+
+```bash
+# Logs do Docker Compose
+docker-compose logs -f [service_name]
+
+# Logs do Kubernetes
+kubectl logs -f deployment/[service_name] -n ualflix
+```
+
+## Resolução de Problemas
+
+### Problemas Comuns
+
+#### Inicialização do MongoDB Replica Set
+Se o replica set falhar ao inicializar:
+```bash
+# Verificar estado do replica set
+docker-compose exec ualflix_db_primary mongosh --eval "rs.status()"
+
+# Reinicializar se necessário
+docker-compose restart mongodb_replica_init
+```
+
+#### Problemas de Comunicação entre Serviços
+Verificar conectividade dos serviços:
+```bash
+# Testar endpoints dos serviços
+curl http://localhost:8080/api/auth/health
+curl http://localhost:8080/api/health
+
+# Verificar redes de contentores
+docker network ls
+docker network inspect ualflix_ualflix_net
+```
+
+#### Problemas de Pods no Kubernetes
+Diagnosticar problemas de pods:
+```bash
+# Verificar estado dos pods
+kubectl get pods -n ualflix
+
+# Ver logs dos pods
+kubectl logs [pod-name] -n ualflix
+
+# Descrever pod para eventos
+kubectl describe pod [pod-name] -n ualflix
+```
+
+#### Problemas de Performance
+Monitorizar recursos do sistema:
+```bash
+# Verificar utilização de recursos
 kubectl top nodes
 kubectl top pods -n ualflix
+
+# Escalar serviços se necessário
+kubectl scale deployment [service-name] --replicas=3 -n ualflix
 ```
 
-### Escalar Serviços (FUNCIONALIDADE 6)
-```bash
-# Escalar catalog service para 5 réplicas
-kubectl scale deployment catalog-service --replicas=5 -n ualflix
+## Desenvolvimento
 
-# Escalar streaming service para alta demanda
-kubectl scale deployment streaming-service --replicas=6 -n ualflix
+### Estrutura do Projeto
 
-# Ver auto-scaling em ação
-kubectl get hpa -n ualflix
+```
+ualflix/
+├── authentication_service/     # Microserviço de autenticação
+├── catalog_service/           # Gestão do catálogo de vídeos
+├── streaming_service/         # Streaming e entrega de vídeos
+├── admin_service/            # Administração e monitorização
+├── video_processor/          # Processamento assíncrono de vídeo
+├── frontend/                 # Aplicação web React
+├── k8s/                     # Manifestos de deployment Kubernetes
+├── monitoring/              # Configuração Prometheus e Grafana
+├── nginx/                   # Configuração do balanceador de carga
+├── mongodb-setup/           # Scripts de inicialização da BD
+├── docker-compose.yml       # Setup do ambiente de desenvolvimento
+├── Makefile                # Comandos de deployment automatizado
+└── README.md               # Esta documentação
 ```
 
-### Simular Falhas (Testar Resilência)
-```bash
-# Deletar pod para testar recuperação automática
-kubectl delete pod -n ualflix -l app=catalog-service
+### Workflow de Desenvolvimento
 
-# Ver recuperação
-kubectl get pods -n ualflix -w
+1. **Desenvolvimento Local**: Usar Docker Compose para iteração rápida
+2. **Testes**: Testes de serviços individuais com contentores isolados
+3. **Integração**: Testes completos do sistema com todos os serviços
+4. **Deployment**: Deployment Kubernetes para ambiente tipo produção
 
-# Simular falha de nó (marcar como indisponível)
-kubectl cordon minikube-m02
-kubectl get nodes
-```
+### Contribuição
 
-### Logs e Debug
-```bash
-# Logs do NGINX Gateway (roteador principal)
-kubectl logs -f -n ualflix deployment/nginx-gateway
+1. Seguir a estrutura de código existente e convenções de nomenclatura
+2. Adicionar health checks e métricas apropriadas aos novos serviços
+3. Atualizar manifestos Kubernetes para novos componentes
+4. Documentar alterações de configuração e modificações da API
 
-# Logs agregados de um serviço
-kubectl logs -f -n ualflix -l app=catalog-service
+## Considerações de Segurança
 
-# Debug interativo
-kubectl exec -it -n ualflix deployment/catalog-service -- /bin/bash
-```
+### Autenticação e Autorização
+- Autenticação baseada em sessões com geração segura de tokens
+- Hashing de passwords usando algoritmos padrão da indústria
+- Separação de papéis admin para funções de gestão do sistema
 
-### MongoDB Replica Set (FUNCIONALIDADE 5)
-```bash
-# Verificar status do replica set
-kubectl exec -it -n ualflix mongodb-0 -- mongosh --eval "rs.status()"
+### Segurança de Rede
+- Comunicação interna entre serviços através de redes privadas
+- Acesso externo através de proxy reverso com rate limiting
+- Terminação TLS ao nível do balanceador de carga (configurável)
 
-# Ver configuração
-kubectl exec -it -n ualflix mongodb-0 -- mongosh --eval "rs.conf()"
+### Proteção de Dados
+- Acesso à base de dados restrito aos serviços da aplicação
+- Validação de upload de ficheiros e restrições de tamanho
+- Configuração sensível através de secrets do Kubernetes
 
-# Testar failover
-kubectl delete pod mongodb-0 -n ualflix
-# Observar nova eleição de primary
-```
+## Otimização de Performance
 
-## 🎯 Demonstração das Funcionalidades
+### Otimização da Base de Dados
+- Operações de leitura distribuídas pelos membros do replica set
+- Otimização de índices para padrões de query comuns
+- Connection pooling para utilização eficiente de recursos
 
-### 1. Sistema Distribuído em Ação
-```bash
-# Ver comunicação entre serviços
-kubectl logs -f -n ualflix deployment/nginx-gateway | grep -E "(auth|catalog|streaming)"
-```
+### Estratégia de Caching
+- Caching ao nível da aplicação para dados frequentemente acedidos
+- Capacidades de integração CDN para entrega de conteúdo de vídeo
+- Headers de cache do browser para assets estáticos
 
-### 2. Cluster com 3 Nós
-```bash
-# Confirmar 3 nós ativos
-kubectl get nodes
-
-# Ver distribuição de pods
-kubectl get pods -n ualflix -o wide
-```
-
-### 3. Load Balancing (NGINX)
-```bash
-# Fazer várias requisições e ver distribuição
-for i in {1..10}; do
-  curl -s $(minikube service nginx-gateway --namespace ualflix --url)/api/videos | head -1
-done
-```
-
-### 4. Auto-scaling
-```bash
-# Gerar carga para ativar HPA
-kubectl run -i --tty load-generator --rm --image=busybox --restart=Never -- /bin/sh
-# Dentro do pod:
-while true; do wget -q -O- http://nginx-gateway.ualflix.svc.cluster.local:8080/api/videos; done
-
-# Em outro terminal, observar scaling
-kubectl get hpa -n ualflix -w
-```
-
-### 5. Alta Disponibilidade
-```bash
-# Deletar pods e ver recuperação automática
-kubectl delete pods -n ualflix -l app=catalog-service
-kubectl get pods -n ualflix -w
-
-# Sistema continua funcionando
-curl $(minikube service nginx-gateway --namespace ualflix --url)/health
-```
-
-## 📊 Métricas e Monitoramento
-
-### Prometheus Queries Úteis
-```promql
-# Latência dos serviços
-http_request_duration_seconds{job="ualflix-services"}
-
-# Throughput
-rate(http_requests_total[5m])
-
-# Utilização de CPU por pod
-rate(container_cpu_usage_seconds_total[5m]) * 100
-
-# Disponibilidade
-up{job="ualflix-services"}
-```
-
-### Grafana Dashboards
-- **Sistema Geral**: CPU, Memória, Rede
-- **Aplicação**: Requests/s, Latência, Erros
-- **MongoDB**: Operações, Replicação, Storage
-- **Kubernetes**: Pods, Nodes, Resources
-
-## 🚨 Resolução de Problemas
-
-Se algo não funcionar, consulte o **Guia de Troubleshooting** que criei, mas os problemas mais comuns são:
-
-```bash
-# 1. Pods em CrashLoopBackOff
-kubectl logs -n ualflix <pod-name> --previous
-
-# 2. Imagens não encontradas
-eval $(minikube docker-env)
-make build
-
-# 3. Serviços não respondem
-kubectl get endpoints -n ualflix
-kubectl exec -n ualflix deployment/frontend -- curl -f http://catalog-service:8000/health
-
-# 4. MongoDB não conecta
-kubectl logs -n ualflix mongodb-0
-kubectl exec -it -n ualflix mongodb-0 -- mongosh --eval "rs.status()"
-
-# 5. NGINX não roteia
-kubectl logs -n ualflix deployment/nginx-gateway
-kubectl exec -n ualflix deployment/nginx-gateway -- nginx -t
-```
-
-## 🎉 Resultado Final
-
-Você terá um sistema completo com:
-
-- **3 nós Kubernetes** rodando o UALFlix
-- **NGINX como roteador principal** fazendo load balancing
-- **MongoDB Replica Set** distribuído pelos nós
-- **Auto-scaling** baseado em demanda
-- **Monitoramento completo** com Prometheus/Grafana
-- **Alta disponibilidade** com recuperação automática
-- **Todas as 7 funcionalidades** do projeto implementadas
-
-## 💡 Próximos Passos
-
-1. **Testar o sistema**: Use as URLs para navegar na aplicação
-2. **Fazer upload de vídeos**: Testar funcionalidade completa
-3. **Simular falhas**: Testar resilência
-4. **Monitorar métricas**: Usar Grafana para análise
-5. **Escalar sob demanda**: Testar auto-scaling
-6. **Documentar**: Preparar apresentação das funcionalidades
-
-O sistema está pronto para demonstração académica! 🚀
+### Estratégias de Escalamento
+- Auto-scaling horizontal de pods baseado em utilização de CPU e memória
+- Read replicas da base de dados para performance de leitura melhorada
+- Escalamento da fila de mensagens para workload de processamento de vídeo

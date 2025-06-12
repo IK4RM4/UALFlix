@@ -1,58 +1,107 @@
 {
   "dashboard": {
     "id": null,
-    "title": "UALFlix - Sistema de Métricas Automáticas",
-    "tags": ["ualflix", "automatic", "performance"],
+    "title": "UALFlix - System Monitoring Dashboard",
+    "tags": ["ualflix", "monitoring", "kubernetes", "performance"],
     "style": "dark",
     "timezone": "browser",
-    "refresh": "30s",
+    "refresh": "10s",
     "time": {
       "from": "now-1h",
       "to": "now"
     },
+    "templating": {
+      "list": [
+        {
+          "name": "service",
+          "type": "query",
+          "query": "label_values(up, job)",
+          "refresh": 1,
+          "includeAll": true,
+          "multi": true,
+          "allValue": ".*"
+        }
+      ]
+    },
     "panels": [
       {
         "id": 1,
-        "title": "🎯 FUNCIONALIDADE 7: Resumo de Performance Automático",
+        "title": "System Overview",
         "type": "stat",
-        "gridPos": {"h": 8, "w": 24, "x": 0, "y": 0},
+        "gridPos": {"h": 6, "w": 24, "x": 0, "y": 0},
         "targets": [
           {
-            "expr": "ualflix:performance_score",
-            "legendFormat": "Score de Performance",
+            "expr": "count(up == 1)",
+            "legendFormat": "Services Online",
             "refId": "A"
           },
           {
-            "expr": "ualflix_system_availability_percent",
-            "legendFormat": "Disponibilidade %",
+            "expr": "count(up == 0)",
+            "legendFormat": "Services Offline",
             "refId": "B"
           },
           {
-            "expr": "ualflix:system_throughput_total",
-            "legendFormat": "Throughput (req/s)",
+            "expr": "avg(rate(http_requests_total[5m]))",
+            "legendFormat": "Avg Request Rate",
             "refId": "C"
           },
           {
-            "expr": "ualflix:request_latency_avg_5m * 1000",
-            "legendFormat": "Latência Média (ms)",
+            "expr": "avg(http_request_duration_seconds_sum / http_request_duration_seconds_count) * 1000",
+            "legendFormat": "Avg Response Time (ms)",
             "refId": "D"
           }
         ],
         "fieldConfig": {
           "defaults": {
-            "color": {"mode": "palette-classic"},
-            "custom": {
-              "displayMode": "list",
-              "orientation": "horizontal"
-            },
-            "mappings": [],
+            "color": {"mode": "thresholds"},
             "thresholds": {
               "steps": [
                 {"color": "green", "value": null},
-                {"color": "red", "value": 80}
+                {"color": "yellow", "value": 0.5},
+                {"color": "red", "value": 1}
+              ]
+            },
+            "unit": "short"
+          },
+          "overrides": [
+            {
+              "matcher": {"id": "byName", "options": "Services Offline"},
+              "properties": [
+                {
+                  "id": "color",
+                  "value": {"mode": "thresholds"}
+                },
+                {
+                  "id": "thresholds",
+                  "value": {
+                    "steps": [
+                      {"color": "green", "value": null},
+                      {"color": "red", "value": 1}
+                    ]
+                  }
+                }
+              ]
+            },
+            {
+              "matcher": {"id": "byName", "options": "Avg Response Time (ms)"},
+              "properties": [
+                {
+                  "id": "unit",
+                  "value": "ms"
+                },
+                {
+                  "id": "thresholds",
+                  "value": {
+                    "steps": [
+                      {"color": "green", "value": null},
+                      {"color": "yellow", "value": 100},
+                      {"color": "red", "value": 500}
+                    ]
+                  }
+                }
               ]
             }
-          }
+          ]
         },
         "options": {
           "reduceOptions": {
@@ -61,395 +110,43 @@
             "fields": ""
           },
           "orientation": "auto",
-          "textMode": "auto",
-          "colorMode": "value",
-          "graphMode": "area",
-          "justifyMode": "auto"
+          "textMode": "value_and_name",
+          "colorMode": "background",
+          "graphMode": "none"
         }
       },
       {
         "id": 2,
-        "title": "📊 LATÊNCIA - Métricas Automáticas",
-        "type": "timeseries",
-        "gridPos": {"h": 9, "w": 12, "x": 0, "y": 8},
-        "targets": [
-          {
-            "expr": "ualflix:request_latency_avg_5m * 1000",
-            "legendFormat": "Latência Média (ms)",
-            "refId": "A"
-          },
-          {
-            "expr": "ualflix:request_latency_p95_5m * 1000",
-            "legendFormat": "Latência P95 (ms)",
-            "refId": "B"
-          },
-          {
-            "expr": "ualflix:video_streaming_latency_avg_5m * 1000",
-            "legendFormat": "Latência Streaming (ms)",
-            "refId": "C"
-          }
-        ],
-        "fieldConfig": {
-          "defaults": {
-            "color": {"mode": "palette-classic"},
-            "custom": {
-              "axisLabel": "",
-              "axisPlacement": "auto",
-              "barAlignment": 0,
-              "drawStyle": "line",
-              "fillOpacity": 10,
-              "gradientMode": "none",
-              "hideFrom": {
-                "legend": false,
-                "tooltip": false,
-                "vis": false
-              },
-              "lineInterpolation": "linear",
-              "lineWidth": 1,
-              "pointSize": 5,
-              "scaleDistribution": {"type": "linear"},
-              "showPoints": "never",
-              "spanNulls": false,
-              "stacking": {"group": "A", "mode": "none"},
-              "thresholdsStyle": {"mode": "off"}
-            },
-            "mappings": [],
-            "thresholds": {
-              "steps": [
-                {"color": "green", "value": null},
-                {"color": "yellow", "value": 200},
-                {"color": "red", "value": 500}
-              ]
-            },
-            "unit": "ms"
-          }
-        },
-        "options": {
-          "legend": {"calcs": [], "displayMode": "list", "placement": "bottom"},
-          "tooltip": {"mode": "single", "sort": "none"}
-        }
-      },
-      {
-        "id": 3,
-        "title": "🚀 THROUGHPUT - Métricas Automáticas",
-        "type": "timeseries",
-        "gridPos": {"h": 9, "w": 12, "x": 12, "y": 8},
-        "targets": [
-          {
-            "expr": "ualflix:request_rate_total_5m",
-            "legendFormat": "{{service}} - Requests/s",
-            "refId": "A"
-          },
-          {
-            "expr": "ualflix:data_transfer_rate_5m",
-            "legendFormat": "{{direction}} - Data Rate",
-            "refId": "B"
-          }
-        ],
-        "fieldConfig": {
-          "defaults": {
-            "color": {"mode": "palette-classic"},
-            "custom": {
-              "axisLabel": "",
-              "axisPlacement": "auto",
-              "barAlignment": 0,
-              "drawStyle": "line",
-              "fillOpacity": 10,
-              "gradientMode": "none",
-              "hideFrom": {"legend": false, "tooltip": false, "vis": false},
-              "lineInterpolation": "linear",
-              "lineWidth": 1,
-              "pointSize": 5,
-              "scaleDistribution": {"type": "linear"},
-              "showPoints": "never",
-              "spanNulls": false,
-              "stacking": {"group": "A", "mode": "none"},
-              "thresholdsStyle": {"mode": "off"}
-            },
-            "mappings": [],
-            "thresholds": {
-              "steps": [
-                {"color": "green", "value": null},
-                {"color": "red", "value": 80}
-              ]
-            },
-            "unit": "reqps"
-          }
-        }
-      },
-      {
-        "id": 4,
-        "title": "💾 UTILIZAÇÃO DE RECURSOS - Automática",
-        "type": "timeseries",
-        "gridPos": {"h": 9, "w": 12, "x": 0, "y": 17},
-        "targets": [
-          {
-            "expr": "ualflix:cpu_usage_avg_5m",
-            "legendFormat": "{{service}} - CPU %",
-            "refId": "A"
-          },
-          {
-            "expr": "ualflix:memory_usage_avg_5m",
-            "legendFormat": "{{service}} - Memory %",
-            "refId": "B"
-          },
-          {
-            "expr": "ualflix_system_disk_percent",
-            "legendFormat": "Disk Usage %",
-            "refId": "C"
-          }
-        ],
-        "fieldConfig": {
-          "defaults": {
-            "color": {"mode": "palette-classic"},
-            "custom": {
-              "axisLabel": "",
-              "axisPlacement": "auto",
-              "barAlignment": 0,
-              "drawStyle": "line",
-              "fillOpacity": 10,
-              "gradientMode": "none",
-              "hideFrom": {"legend": false, "tooltip": false, "vis": false},
-              "lineInterpolation": "linear",
-              "lineWidth": 1,
-              "pointSize": 5,
-              "scaleDistribution": {"type": "linear"},
-              "showPoints": "never",
-              "spanNulls": false,
-              "stacking": {"group": "A", "mode": "none"},
-              "thresholdsStyle": {"mode": "line"}
-            },
-            "mappings": [],
-            "max": 100,
-            "min": 0,
-            "thresholds": {
-              "steps": [
-                {"color": "green", "value": null},
-                {"color": "yellow", "value": 70},
-                {"color": "red", "value": 85}
-              ]
-            },
-            "unit": "percent"
-          }
-        }
-      },
-      {
-        "id": 5,
-        "title": "🏗️ FUNCIONALIDADE 2: Métricas de Cluster",
-        "type": "stat",
-        "gridPos": {"h": 9, "w": 12, "x": 12, "y": 17},
-        "targets": [
-          {
-            "expr": "ualflix_cluster_nodes_total",
-            "legendFormat": "Total de Nós",
-            "refId": "A"
-          },
-          {
-            "expr": "ualflix_cluster_nodes_healthy",
-            "legendFormat": "Nós Saudáveis",
-            "refId": "B"
-          },
-          {
-            "expr": "ualflix:cluster_availability",
-            "legendFormat": "Disponibilidade Cluster %",
-            "refId": "C"
-          },
-          {
-            "expr": "ualflix:cluster_coordination_avg_5m * 1000",
-            "legendFormat": "Tempo Coordenação (ms)",
-            "refId": "D"
-          }
-        ],
-        "fieldConfig": {
-          "defaults": {
-            "color": {"mode": "thresholds"},
-            "custom": {
-              "displayMode": "list",
-              "orientation": "horizontal"
-            },
-            "mappings": [],
-            "thresholds": {
-              "steps": [
-                {"color": "green", "value": null},
-                {"color": "yellow", "value": 80},
-                {"color": "red", "value": 90}
-              ]
-            }
-          }
-        },
-        "options": {
-          "reduceOptions": {
-            "values": false,
-            "calcs": ["lastNotNull"],
-            "fields": ""
-          },
-          "orientation": "auto",
-          "textMode": "auto",
-          "colorMode": "value",
-          "graphMode": "area",
-          "justifyMode": "auto"
-        }
-      },
-      {
-        "id": 6,
-        "title": "🔄 FUNCIONALIDADES 5 e 6: Replicação e Serviços",
-        "type": "timeseries",
-        "gridPos": {"h": 9, "w": 12, "x": 0, "y": 26},
-        "targets": [
-          {
-            "expr": "ualflix:total_active_replicas",
-            "legendFormat": "{{service}} - Réplicas Ativas",
-            "refId": "A"
-          },
-          {
-            "expr": "ualflix:replication_health_percent",
-            "legendFormat": "Saúde da Replicação %",
-            "refId": "B"
-          },
-          {
-            "expr": "ualflix:replica_load_distribution",
-            "legendFormat": "{{service}} - Carga por Réplica",
-            "refId": "C"
-          }
-        ],
-        "fieldConfig": {
-          "defaults": {
-            "color": {"mode": "palette-classic"},
-            "custom": {
-              "axisLabel": "",
-              "axisPlacement": "auto",
-              "barAlignment": 0,
-              "drawStyle": "line",
-              "fillOpacity": 10,
-              "gradientMode": "none",
-              "hideFrom": {"legend": false, "tooltip": false, "vis": false},
-              "lineInterpolation": "linear",
-              "lineWidth": 1,
-              "pointSize": 5,
-              "scaleDistribution": {"type": "linear"},
-              "showPoints": "never",
-              "spanNulls": false,
-              "stacking": {"group": "A", "mode": "none"},
-              "thresholdsStyle": {"mode": "off"}
-            },
-            "mappings": [],
-            "thresholds": {
-              "steps": [
-                {"color": "green", "value": null},
-                {"color": "red", "value": 80}
-              ]
-            }
-          }
-        }
-      },
-      {
-        "id": 7,
-        "title": "📈 FUNCIONALIDADE 7: Análise de Tendências Automática",
-        "type": "timeseries",
-        "gridPos": {"h": 9, "w": 12, "x": 12, "y": 26},
-        "targets": [
-          {
-            "expr": "ualflix:cpu_trend_2h_vs_30m",
-            "legendFormat": "Tendência CPU (Δ%)",
-            "refId": "A"
-          },
-          {
-            "expr": "ualflix:memory_trend_2h_vs_30m",
-            "legendFormat": "Tendência Memória (Δ%)",
-            "refId": "B"
-          },
-          {
-            "expr": "ualflix:throughput_trend_2h_vs_30m",
-            "legendFormat": "Tendência Throughput (Δ)",
-            "refId": "C"
-          }
-        ],
-        "fieldConfig": {
-          "defaults": {
-            "color": {"mode": "palette-classic"},
-            "custom": {
-              "axisLabel": "",
-              "axisPlacement": "auto",
-              "barAlignment": 0,
-              "drawStyle": "line",
-              "fillOpacity": 20,
-              "gradientMode": "opacity",
-              "hideFrom": {"legend": false, "tooltip": false, "vis": false},
-              "lineInterpolation": "smooth",
-              "lineWidth": 2,
-              "pointSize": 5,
-              "scaleDistribution": {"type": "linear"},
-              "showPoints": "never",
-              "spanNulls": false,
-              "stacking": {"group": "A", "mode": "none"},
-              "thresholdsStyle": {"mode": "line"}
-            },
-            "mappings": [],
-            "thresholds": {
-              "steps": [
-                {"color": "green", "value": null},
-                {"color": "yellow", "value": 10},
-                {"color": "red", "value": 20}
-              ]
-            }
-          }
-        }
-      },
-      {
-        "id": 8,
-        "title": "🚨 Alertas Automáticos e Status de Serviços",
+        "title": "Service Health Status",
         "type": "table",
-        "gridPos": {"h": 8, "w": 24, "x": 0, "y": 35},
+        "gridPos": {"h": 8, "w": 12, "x": 0, "y": 6},
         "targets": [
           {
-            "expr": "up{job=\"ualflix-services\"}",
-            "legendFormat": "{{instance}}",
-            "refId": "A",
+            "expr": "up{job=~\"$service\"}",
             "format": "table",
-            "instant": true
-          },
-          {
-            "expr": "ualflix:performance_degradation_detected",
-            "legendFormat": "Performance Degradation",
-            "refId": "B",
-            "format": "table",
-            "instant": true
-          },
-          {
-            "expr": "ualflix:system_overload_detected",
-            "legendFormat": "System Overload",
-            "refId": "C",
-            "format": "table",
-            "instant": true
-          },
-          {
-            "expr": "ualflix:cluster_instability_detected",
-            "legendFormat": "Cluster Instability",
-            "refId": "D",
-            "format": "table",
-            "instant": true
+            "instant": true,
+            "refId": "A"
           }
         ],
         "fieldConfig": {
           "defaults": {
-            "color": {"mode": "thresholds"},
             "custom": {
-              "align": "auto",
-              "displayMode": "auto"
+              "align": "center",
+              "displayMode": "color-background"
             },
             "mappings": [
               {
                 "options": {
-                  "0": {"color": "red", "index": 0, "text": "❌ OFFLINE"},
-                  "1": {"color": "green", "index": 1, "text": "✅ ONLINE"}
+                  "0": {"color": "red", "index": 0, "text": "DOWN"},
+                  "1": {"color": "green", "index": 1, "text": "UP"}
                 },
                 "type": "value"
               }
             ],
             "thresholds": {
               "steps": [
-                {"color": "green", "value": null},
-                {"color": "red", "value": 0.5}
+                {"color": "red", "value": null},
+                {"color": "green", "value": 1}
               ]
             }
           }
@@ -465,9 +162,9 @@
                 "Time": true,
                 "__name__": true
               },
-              "indexByName": {},
               "renameByName": {
-                "instance": "Serviço",
+                "instance": "Instance",
+                "job": "Service",
                 "Value": "Status"
               }
             }
@@ -475,126 +172,372 @@
         ]
       },
       {
-        "id": 9,
-        "title": "☁️ FUNCIONALIDADE 4: Métricas Cloud e Escalabilidade",
-        "type": "stat",
-        "gridPos": {"h": 6, "w": 24, "x": 0, "y": 43},
-        "targets": [
-          {
-            "expr": "ualflix:scaling_recommendation",
-            "legendFormat": "Recomendação de Escala",
-            "refId": "A"
-          },
-          {
-            "expr": "ualflix:resource_efficiency",
-            "legendFormat": "Eficiência de Recursos",
-            "refId": "B"
-          },
-          {
-            "expr": "ualflix:load_balancer_health",
-            "legendFormat": "Saúde Load Balancer",
-            "refId": "C"
-          }
-        ],
-        "fieldConfig": {
-          "defaults": {
-            "color": {"mode": "thresholds"},
-            "custom": {
-              "displayMode": "list",
-              "orientation": "horizontal"
-            },
-            "mappings": [
-              {
-                "options": {
-                  "0": {"color": "green", "index": 0, "text": "✅ OK"},
-                  "1": {"color": "red", "index": 1, "text": "⚠️ SCALE NEEDED"}
-                },
-                "type": "value"
-              }
-            ],
-            "thresholds": {
-              "steps": [
-                {"color": "green", "value": null},
-                {"color": "yellow", "value": 0.5},
-                {"color": "red", "value": 1}
-              ]
-            }
-          }
-        },
-        "options": {
-          "reduceOptions": {
-            "values": false,
-            "calcs": ["lastNotNull"],
-            "fields": ""
-          },
-          "orientation": "auto",
-          "textMode": "value_and_name",
-          "colorMode": "background",
-          "graphMode": "none",
-          "justifyMode": "auto"
-        }
-      },
-      {
-        "id": 10,
-        "title": "🎬 UALFlix - Métricas Específicas da Aplicação",
+        "id": 3,
+        "title": "Request Rate by Service",
         "type": "timeseries",
-        "gridPos": {"h": 8, "w": 24, "x": 0, "y": 49},
+        "gridPos": {"h": 8, "w": 12, "x": 12, "y": 6},
         "targets": [
           {
-            "expr": "ualflix_active_users_count",
-            "legendFormat": "Usuários Ativos",
+            "expr": "rate(http_requests_total{job=~\"$service\"}[5m])",
+            "legendFormat": "{{job}} - {{method}}",
             "refId": "A"
-          },
-          {
-            "expr": "ualflix_concurrent_streams",
-            "legendFormat": "Streams Simultâneos",
-            "refId": "B"
-          },
-          {
-            "expr": "ualflix_video_catalog_total",
-            "legendFormat": "Total de Vídeos",
-            "refId": "C"
-          },
-          {
-            "expr": "ualflix_queue_size",
-            "legendFormat": "{{queue_name}} - Fila",
-            "refId": "D"
           }
         ],
         "fieldConfig": {
           "defaults": {
             "color": {"mode": "palette-classic"},
             "custom": {
-              "axisLabel": "",
               "axisPlacement": "auto",
-              "barAlignment": 0,
               "drawStyle": "line",
               "fillOpacity": 10,
-              "gradientMode": "none",
-              "hideFrom": {"legend": false, "tooltip": false, "vis": false},
-              "lineInterpolation": "linear",
-              "lineWidth": 1,
+              "lineWidth": 2,
               "pointSize": 5,
-              "scaleDistribution": {"type": "linear"},
               "showPoints": "never",
-              "spanNulls": false,
-              "stacking": {"group": "A", "mode": "none"},
-              "thresholdsStyle": {"mode": "off"}
+              "stacking": {"mode": "none"}
             },
-            "mappings": [],
-            "thresholds": {
-              "steps": [
-                {"color": "green", "value": null},
-                {"color": "red", "value": 80}
-              ]
-            },
-            "unit": "short"
+            "unit": "reqps"
           }
         },
         "options": {
-          "legend": {"calcs": [], "displayMode": "list", "placement": "bottom"},
-          "tooltip": {"mode": "single", "sort": "none"}
+          "legend": {"displayMode": "list", "placement": "bottom"},
+          "tooltip": {"mode": "multi", "sort": "desc"}
         }
+      },
+      {
+        "id": 4,
+        "title": "Response Time Distribution",
+        "type": "timeseries",
+        "gridPos": {"h": 8, "w": 12, "x": 0, "y": 14},
+        "targets": [
+          {
+            "expr": "histogram_quantile(0.50, rate(http_request_duration_seconds_bucket{job=~\"$service\"}[5m])) * 1000",
+            "legendFormat": "{{job}} - 50th percentile",
+            "refId": "A"
+          },
+          {
+            "expr": "histogram_quantile(0.95, rate(http_request_duration_seconds_bucket{job=~\"$service\"}[5m])) * 1000",
+            "legendFormat": "{{job}} - 95th percentile",
+            "refId": "B"
+          },
+          {
+            "expr": "histogram_quantile(0.99, rate(http_request_duration_seconds_bucket{job=~\"$service\"}[5m])) * 1000",
+            "legendFormat": "{{job}} - 99th percentile",
+            "refId": "C"
+          }
+        ],
+        "fieldConfig": {
+          "defaults": {
+            "color": {"mode": "palette-classic"},
+            "custom": {
+              "axisPlacement": "auto",
+              "drawStyle": "line",
+              "fillOpacity": 0,
+              "lineWidth": 2,
+              "pointSize": 5,
+              "showPoints": "never"
+            },
+            "unit": "ms",
+            "thresholds": {
+              "steps": [
+                {"color": "green", "value": null},
+                {"color": "yellow", "value": 100},
+                {"color": "red", "value": 500}
+              ]
+            }
+          }
+        }
+      },
+      {
+        "id": 5,
+        "title": "Error Rate",
+        "type": "timeseries",
+        "gridPos": {"h": 8, "w": 12, "x": 12, "y": 14},
+        "targets": [
+          {
+            "expr": "rate(http_requests_total{job=~\"$service\",status=~\"4..|5..\"}[5m]) / rate(http_requests_total{job=~\"$service\"}[5m]) * 100",
+            "legendFormat": "{{job}} - Error Rate %",
+            "refId": "A"
+          }
+        ],
+        "fieldConfig": {
+          "defaults": {
+            "color": {"mode": "palette-classic"},
+            "custom": {
+              "axisPlacement": "auto",
+              "drawStyle": "line",
+              "fillOpacity": 10,
+              "lineWidth": 2,
+              "pointSize": 5,
+              "showPoints": "auto"
+            },
+            "unit": "percent",
+            "thresholds": {
+              "steps": [
+                {"color": "green", "value": null},
+                {"color": "yellow", "value": 1},
+                {"color": "red", "value": 5}
+              ]
+            }
+          }
+        }
+      },
+      {
+        "id": 6,
+        "title": "Database Metrics",
+        "type": "stat",
+        "gridPos": {"h": 6, "w": 12, "x": 0, "y": 22},
+        "targets": [
+          {
+            "expr": "ualflix_mongodb_replica_status",
+            "legendFormat": "MongoDB Replica Set Health",
+            "refId": "A"
+          },
+          {
+            "expr": "ualflix_mongodb_replication_lag_seconds",
+            "legendFormat": "Replication Lag (seconds)",
+            "refId": "B"
+          }
+        ],
+        "fieldConfig": {
+          "defaults": {
+            "color": {"mode": "thresholds"},
+            "thresholds": {
+              "steps": [
+                {"color": "green", "value": null},
+                {"color": "yellow", "value": 1},
+                {"color": "red", "value": 5}
+              ]
+            }
+          },
+          "overrides": [
+            {
+              "matcher": {"id": "byName", "options": "Replication Lag (seconds)"},
+              "properties": [
+                {
+                  "id": "unit",
+                  "value": "s"
+                },
+                {
+                  "id": "thresholds",
+                  "value": {
+                    "steps": [
+                      {"color": "green", "value": null},
+                      {"color": "yellow", "value": 1},
+                      {"color": "red", "value": 5}
+                    ]
+                  }
+                }
+              ]
+            }
+          ]
+        }
+      },
+      {
+        "id": 7,
+        "title": "System Resource Usage",
+        "type": "timeseries",
+        "gridPos": {"h": 6, "w": 12, "x": 12, "y": 22},
+        "targets": [
+          {
+            "expr": "ualflix_system_cpu_percent",
+            "legendFormat": "{{service}} - CPU %",
+            "refId": "A"
+          },
+          {
+            "expr": "ualflix_system_memory_percent",
+            "legendFormat": "{{service}} - Memory %",
+            "refId": "B"
+          }
+        ],
+        "fieldConfig": {
+          "defaults": {
+            "color": {"mode": "palette-classic"},
+            "custom": {
+              "axisPlacement": "auto",
+              "drawStyle": "line",
+              "fillOpacity": 10,
+              "lineWidth": 1,
+              "pointSize": 5,
+              "showPoints": "never"
+            },
+            "unit": "percent",
+            "max": 100,
+            "min": 0,
+            "thresholds": {
+              "steps": [
+                {"color": "green", "value": null},
+                {"color": "yellow", "value": 70},
+                {"color": "red", "value": 90}
+              ]
+            }
+          }
+        }
+      },
+      {
+        "id": 8,
+        "title": "Video Processing Metrics",
+        "type": "stat",
+        "gridPos": {"h": 4, "w": 8, "x": 0, "y": 28},
+        "targets": [
+          {
+            "expr": "videos_processed_total",
+            "legendFormat": "Videos Processed",
+            "refId": "A"
+          },
+          {
+            "expr": "videos_failed_total",
+            "legendFormat": "Videos Failed",
+            "refId": "B"
+          },
+          {
+            "expr": "video_queue_size",
+            "legendFormat": "Queue Size",
+            "refId": "C"
+          }
+        ],
+        "fieldConfig": {
+          "defaults": {
+            "color": {"mode": "thresholds"},
+            "thresholds": {
+              "steps": [
+                {"color": "green", "value": null},
+                {"color": "yellow", "value": 10},
+                {"color": "red", "value": 50}
+              ]
+            }
+          },
+          "overrides": [
+            {
+              "matcher": {"id": "byName", "options": "Videos Failed"},
+              "properties": [
+                {
+                  "id": "color",
+                  "value": {"mode": "thresholds"}
+                },
+                {
+                  "id": "thresholds",
+                  "value": {
+                    "steps": [
+                      {"color": "green", "value": null},
+                      {"color": "red", "value": 1}
+                    ]
+                  }
+                }
+              ]
+            }
+          ]
+        }
+      },
+      {
+        "id": 9,
+        "title": "Video Processing Time",
+        "type": "timeseries",
+        "gridPos": {"h": 4, "w": 8, "x": 8, "y": 28},
+        "targets": [
+          {
+            "expr": "rate(video_processing_seconds_sum[5m]) / rate(video_processing_seconds_count[5m])",
+            "legendFormat": "Avg Processing Time",
+            "refId": "A"
+          }
+        ],
+        "fieldConfig": {
+          "defaults": {
+            "color": {"mode": "palette-classic"},
+            "custom": {
+              "axisPlacement": "auto",
+              "drawStyle": "line",
+              "fillOpacity": 10,
+              "lineWidth": 2,
+              "pointSize": 5,
+              "showPoints": "never"
+            },
+            "unit": "s"
+          }
+        }
+      },
+      {
+        "id": 10,
+        "title": "Network Traffic",
+        "type": "timeseries",
+        "gridPos": {"h": 4, "w": 8, "x": 16, "y": 28},
+        "targets": [
+          {
+            "expr": "rate(ualflix_data_bytes_total{direction=\"in\"}[5m])",
+            "legendFormat": "Data In",
+            "refId": "A"
+          },
+          {
+            "expr": "rate(ualflix_data_bytes_total{direction=\"out\"}[5m])",
+            "legendFormat": "Data Out",
+            "refId": "B"
+          }
+        ],
+        "fieldConfig": {
+          "defaults": {
+            "color": {"mode": "palette-classic"},
+            "custom": {
+              "axisPlacement": "auto",
+              "drawStyle": "line",
+              "fillOpacity": 10,
+              "lineWidth": 2,
+              "pointSize": 5,
+              "showPoints": "never"
+            },
+            "unit": "binBps"
+          }
+        }
+      },
+      {
+        "id": 11,
+        "title": "System Alerts",
+        "type": "table",
+        "gridPos": {"h": 6, "w": 24, "x": 0, "y": 32},
+        "targets": [
+          {
+            "expr": "ALERTS{alertstate=\"firing\"}",
+            "format": "table",
+            "instant": true,
+            "refId": "A"
+          }
+        ],
+        "fieldConfig": {
+          "defaults": {
+            "custom": {
+              "align": "left",
+              "displayMode": "color-background"
+            },
+            "mappings": [
+              {
+                "options": {
+                  "firing": {"color": "red", "index": 0, "text": "FIRING"},
+                  "pending": {"color": "yellow", "index": 1, "text": "PENDING"}
+                },
+                "type": "value"
+              }
+            ]
+          }
+        },
+        "options": {
+          "showHeader": true
+        },
+        "transformations": [
+          {
+            "id": "organize",
+            "options": {
+              "excludeByName": {
+                "Time": true,
+                "__name__": true,
+                "job": false
+              },
+              "renameByName": {
+                "alertname": "Alert",
+                "alertstate": "State",
+                "instance": "Instance",
+                "severity": "Severity"
+              }
+            }
+          }
+        ]
       }
     ],
     "annotations": {
@@ -612,7 +555,7 @@
     },
     "editable": true,
     "gnetId": null,
-    "graphTooltip": 0,
+    "graphTooltip": 1,
     "links": [],
     "liveNow": false,
     "schemaVersion": 30,

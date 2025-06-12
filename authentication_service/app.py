@@ -8,6 +8,7 @@ import json
 import uuid
 from werkzeug.security import generate_password_hash, check_password_hash
 from datetime import datetime, timedelta, timezone
+from prometheus_client import generate_latest, CONTENT_TYPE_LATEST
 from bson import ObjectId
 from db_mongodb import get_mongodb_manager, with_write_db, with_read_db
 
@@ -284,17 +285,21 @@ def get_stats():
     except Exception as e:
         logger.error(f"Erro ao obter estatísticas: {e}")
         return jsonify({"error": str(e)}), 500
+@app.route('/metrics')
+def metrics():
+    """Endpoint para Prometheus coletar métricas"""
+    return generate_latest(), 200, {'Content-Type': CONTENT_TYPE_LATEST}
 
 if __name__ == "__main__":
-    logger.info("🔐 Authentication Service com MongoDB iniciado")
+    logger.info(" Authentication Service com MongoDB iniciado")
     
     # Inicializar MongoDB
     try:
         manager = get_mongodb_manager()
         manager.create_indexes()
         manager.init_collections()
-        logger.info("✅ MongoDB inicializado")
+        logger.info("MongoDB inicializado")
     except Exception as e:
-        logger.error(f"❌ Erro ao inicializar MongoDB: {e}")
+        logger.error(f"Erro ao inicializar MongoDB: {e}")
     
     app.run(host="0.0.0.0", port=8000, debug=True)

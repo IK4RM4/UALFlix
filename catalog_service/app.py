@@ -10,6 +10,7 @@ import pika
 import requests
 from datetime import datetime
 from bson import ObjectId
+from prometheus_client import generate_latest, CONTENT_TYPE_LATEST
 
 # Configuração de logging
 logging.basicConfig(level=logging.INFO)
@@ -88,6 +89,10 @@ def validate_user_token(token):
     except Exception as e:
         logger.error(f"Erro ao validar token: {e}")
     return None
+@app.route('/metrics')
+def metrics():
+    """Endpoint para Prometheus coletar métricas"""
+    return generate_latest(), 200, {'Content-Type': CONTENT_TYPE_LATEST}
 
 @with_write_db
 def create_video_record(db, title, description, filename, url, user_id):

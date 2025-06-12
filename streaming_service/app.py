@@ -4,6 +4,7 @@ from prometheus_flask_exporter import PrometheusMetrics
 import os
 import logging
 import mimetypes
+from prometheus_client import generate_latest, CONTENT_TYPE_LATEST
 
 # Configuração de logging
 logging.basicConfig(level=logging.INFO)
@@ -210,13 +211,18 @@ def status_endpoint():
     except Exception as e:
         logger.error(f"Erro ao obter status: {e}")
         return jsonify({"error": "Internal server error"}), 500
+    
+@app.route('/metrics')
+def metrics():
+    """Endpoint para Prometheus coletar métricas"""
+    return generate_latest(), 200, {'Content-Type': CONTENT_TYPE_LATEST}
 
 if __name__ == '__main__':
-    logger.info("🎥 Iniciando Streaming Service...")
-    logger.info(f"📁 Pasta de vídeos: {VIDEO_FOLDER}")
+    logger.info("Iniciando Streaming Service...")
+    logger.info(f"Pasta de vídeos: {VIDEO_FOLDER}")
     
     try:
         app.run(host='0.0.0.0', port=8001, debug=False)
     except Exception as e:
-        logger.error(f"❌ Erro ao iniciar servidor: {e}")
+        logger.error(f"Erro ao iniciar servidor: {e}")
         exit(1)

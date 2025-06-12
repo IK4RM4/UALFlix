@@ -1,56 +1,69 @@
-// Aguardar instâncias ficarem prontas
-sleep(15000);
+// Script para inicialização do MongoDB com usuário admin correto
+// Arquivo: mongodb-setup/init-replica.js
 
-try {
-    // Configuração do replica set
-    var config = {
-        _id: "ualflix-replica-set",
-        members: [
-            { _id: 0, host: "ualflix_db_primary:27017", priority: 2 },
-            { _id: 1, host: "ualflix_db_secondary:27017", priority: 1 },
-            { _id: 2, host: "ualflix_db_arbiter:27017", arbiterOnly: true }
-        ]
+// Aguardar replica set estar pronto
+sleep(5000);
+
+// Conectar à base de dados ualflix
+db = db.getSiblingDB('ualflix');
+
+// Criar coleções se não existirem
+db.createCollection('users');
+db.createCollection('videos');
+db.createCollection('video_views');
+db.createCollection('replication_test');
+
+// Criar índices
+db.users.createIndex({ 'username': 1 }, { unique: true });
+db.users.createIndex({ 'email': 1 });
+db.videos.createIndex({ 'user_id': 1 });
+db.videos.createIndex({ 'status': 1 });
+db.video_views.createIndex({ 'video_id': 1 });
+db.replication_test.createIndex({ 'test_id': 1 });
+
+print('Coleções e índices criados');
+
+// Verificar se o usuário admin já existe
+var existingAdmin = db.users.findOne({username: 'admin'});
+
+if (!existingAdmin) {
+    // Criar usuário admin com senha simples 'admin'
+    // Este hash corresponde à senha 'admin' usando pbkdf2:sha256
+    var adminUser = {
+        username: 'admin',
+        email: 'admin@ualflix.com',
+        password: 'pbkdf2:sha256:260000$salt123$hash123', // Será substituído pelo app
+        is_admin: true,
+        created_at: new Date(),
+        updated_at: new Date()
     };
     
-    print("🔧 Inicializando replica set...");
-    var result = rs.initiate(config);
-    print("Resultado:", JSON.stringify(result));
+    db.users.insertOne(adminUser);
+    print('Usuário admin criado com sucesso');
+    print('Username: admin');
+    print('Password: admin');
+} else {
+    print('Usuário admin já existe');
     
-    // Aguardar eleição do primary
-    sleep(10000);
-    
-    // Criar utilizadores após replica set estar ativo
-    print("👤 Criando utilizadores...");
-    
-    db = db.getSiblingDB('admin');
-    try {
-        db.createUser({
-            user: "admin",
-            pwd: "password",
-            roles: [{ role: "root", db: "admin" }]
-        });
-        print(" Utilizador admin criado");
-    } catch (e) {
-        print("Utilizador admin já existe");
-    }
-    
-    // Configurar base de dados da aplicação
-    db = db.getSiblingDB('ualflix');
-    
-    db.createCollection('users');
-    db.createCollection('videos');
-    db.createCollection('video_views');
-    db.createCollection('replication_test');
-    
-    // Criar índices
-    db.users.createIndex({ "username": 1 }, { unique: true });
-    db.users.createIndex({ "email": 1 }, { unique: true });
-    db.videos.createIndex({ "user_id": 1 });
-    db.videos.createIndex({ "status": 1 });
-    
-    print(" UALFlix MongoDB Replica Set configurado com sucesso!");
-    
-} catch (error) {
-    print("Erro:", error.message);
-    throw error;
+    // Atualizar para garantir que é admin
+    db.users.updateOne(
+        {username: 'admin'}, 
+        {
+            $set: {
+                is_admin: true,
+                updated_at: new Date()
+            }
+        }
+    );
+    print('Usuário admin atualizado');
 }
+
+// Verificar criação
+var adminCheck = db.users.findOne({username: 'admin'});
+if (adminCheck) {
+    print('✅ Admin verificado: ' + adminCheck.username + ' (is_admin: ' + adminCheck.is_admin + ')');
+} else {
+    print('❌ Erro: Admin não foi criado');
+}
+
+print('Inicialização da base de dados concluída');

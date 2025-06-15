@@ -1,4 +1,3 @@
-
 services:
   # ================================================================
   # MONGODB REPLICA SET - Mantém nomes fixos (necessário para RS)
@@ -83,7 +82,7 @@ services:
     command: >
       bash -c "
         echo 'Aguardando MongoDB instances...';
-        sleep 20;
+        sleep 45;
         echo 'Inicializando Replica Set...';
         mongosh --host ualflix_db_primary:27017 --eval \"
         var config = {
@@ -101,65 +100,10 @@ services:
           print('Replica set ja existe:', e.message);
         }
         
-        sleep(15000);
+        sleep(60000); // Aguarda 60 segundos para o replica set estabilizar
         
-        // Inicializar base de dados com admin correto
-        db = db.getSiblingDB('ualflix');
-        
-        // Criar coleções
-        db.createCollection('users');
-        db.createCollection('videos');
-        db.createCollection('video_views');
-        db.createCollection('replication_test');
-        
-        // Criar índices
-        try {
-          db.users.createIndex({ 'username': 1 }, { unique: true });
-          db.users.createIndex({ 'email': 1 });
-          db.videos.createIndex({ 'user_id': 1 });
-          db.videos.createIndex({ 'status': 1 });
-          db.video_views.createIndex({ 'video_id': 1 });
-          db.replication_test.createIndex({ 'test_id': 1 });
-          print('Índices criados');
-        } catch(e) {
-          print('Índices já existem');
-        }
-        
-        // Criar usuário admin SIMPLES (sem hash complexo)
-        var existingAdmin = db.users.findOne({username: 'admin'});
-        if (!existingAdmin) {
-          var adminUser = {
-            username: 'admin',
-            email: 'admin@ualflix.com',
-            password: 'admin_temp_will_be_hashed_by_app',
-            is_admin: true,
-            created_at: new Date(),
-            updated_at: new Date(),
-            temp_password: true
-          };
-          
-          db.users.insertOne(adminUser);
-          print('✅ Admin criado - Username: admin, Password: admin');
-        } else {
-          print('Admin já existe');
-          // Garantir que é admin
-          db.users.updateOne(
-            {username: 'admin'}, 
-            {\$set: {is_admin: true, updated_at: new Date()}}
-          );
-        }
-        
-        // Verificar
-        var adminCheck = db.users.findOne({username: 'admin'});
-        if (adminCheck && adminCheck.is_admin) {
-          print('✅ Admin verificado com sucesso');
-        } else {
-          print('❌ Erro na verificação do admin');
-        }
-        
-        print('Base de dados configurada');
+        print('Setup MongoDB concluido!');
         \";
-        echo 'Setup MongoDB concluido!';
       "
 
   # ================================================================

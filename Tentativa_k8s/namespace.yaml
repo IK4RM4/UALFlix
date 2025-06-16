@@ -1,0 +1,11 @@
+# k8s/namespace.yaml
+# FUNCIONALIDADE 2: CLUSTER - Namespace isolado para UALFlix
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: ualflix
+  labels:
+    name: ualflix
+    project: ualflix
+    environment: development
+    cluster.architecture: multi-node

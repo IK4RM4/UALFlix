@@ -1,0 +1,261 @@
+version: '3.8'
+
+services:
+  # Nginx como proxy reverso
+  nginx:
+    build: ./nginx
+    image: ualflix/nginx:latest
+    deploy:
+      replicas: 1
+      restart_policy:
+        condition: on-failure
+      placement:
+        constraints: [node.role == manager]
+    ports:
+      - "80:80"
+      - "443:443"
+    networks:
+      - ualflix_net
+    depends_on:
+      - frontend
+      - authentication_service
+      - catalog_service
+      - streaming_service
+      - admin_service
+
+  # MongoDB Replica Set
+  ualflix_db_primary:
+    image: mongo:6.0
+    deploy:
+      placement:
+        constraints: [node.role == manager]
+      replicas: 1
+      restart_policy:
+        condition: on-failure
+    environment:
+      - MONGO_INITDB_DATABASE=ualflix
+    volumes:
+      - mongo_primary_data:/data/db
+      - ./mongodb-setup:/docker-entrypoint-initdb.d/
+    command: mongod --replSet ualflix-replica-set --bind_ip_all --noauth
+    networks:
+      - ualflix_net
+    healthcheck:
+      test: ["CMD", "mongosh", "--eval", "db.runCommand('ping').ok"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
+
+  ualflix_db_secondary:
+    image: mongo:6.0
+    deploy:
+      placement:
+        constraints: [node.role == manager]
+      replicas: 1
+      restart_policy:
+        condition: on-failure
+    volumes:
+      - mongo_secondary_data:/data/db
+    command: mongod --replSet ualflix-replica-set --bind_ip_all --noauth
+    networks:
+      - ualflix_net
+    depends_on:
+      - ualflix_db_primary
+    healthcheck:
+      test: ["CMD", "mongosh", "--eval", "db.runCommand('ping').ok"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
+
+  ualflix_db_arbiter:
+    image: mongo:6.0
+    deploy:
+      placement:
+        constraints: [node.role == manager]
+      replicas: 1
+      restart_policy:
+        condition: on-failure
+    volumes:
+      - mongo_arbiter_data:/data/db
+    command: mongod --replSet ualflix-replica-set --bind_ip_all --noauth
+    networks:
+      - ualflix_net
+    depends_on:
+      - ualflix_db_primary
+    healthcheck:
+      test: ["CMD", "mongosh", "--eval", "db.runCommand('ping').ok"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
+
+  # RabbitMQ
+  queue_service:
+    image: rabbitmq:3-management
+    deploy:
+      placement:
+        constraints: [node.role == manager]
+      replicas: 1
+      restart_policy:
+        condition: on-failure
+    environment:
+      - RABBITMQ_DEFAULT_USER=ualflix
+      - RABBITMQ_DEFAULT_PASS=ualflix_password
+    ports:
+    - "15672:15672"
+    - "5672:5672"
+    networks:
+      - ualflix_net
+    healthcheck:
+      test: ["CMD", "rabbitmq-diagnostics", "-q", "ping"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+
+  # Authentication Service
+  authentication_service:
+    image: ualflix/authentication_service:latest
+    deploy:
+      replicas: 2
+      restart_policy:
+        condition: on-failure
+    environment:
+      - MONGODB_CONNECTION_STRING=mongodb://ualflix_db_primary:27017,ualflix_db_secondary:27017,ualflix_db_arbiter:27017/ualflix?replicaSet=ualflix-replica-set
+      - MONGODB_PRIMARY_HOST=ualflix_db_primary
+      - MONGODB_SECONDARY_HOST=ualflix_db_secondary
+      - MONGODB_REPLICA_SET=ualflix-replica-set
+      - MONGODB_DATABASE=ualflix
+      - SECRET_KEY=ualflix-secret-key
+    networks:
+      - ualflix_net
+    depends_on:
+      - ualflix_db_primary
+      - ualflix_db_secondary
+      - ualflix_db_arbiter
+
+  # Catalog Service
+  catalog_service:
+    image: ualflix/catalog_service:latest
+    deploy:
+      replicas: 2
+      restart_policy:
+        condition: on-failure
+    placement:
+      constraints: [node.role == manager]
+    environment:
+      - MONGODB_CONNECTION_STRING=mongodb://ualflix_db_primary:27017,ualflix_db_secondary:27017,ualflix_db_arbiter:27017/ualflix?replicaSet=ualflix-replica-set
+      - MONGODB_PRIMARY_HOST=ualflix_db_primary
+      - MONGODB_SECONDARY_HOST=ualflix_db_secondary
+      - MONGODB_REPLICA_SET=ualflix-replica-set
+      - MONGODB_DATABASE=ualflix
+      - QUEUE_HOST=queue_service
+      - QUEUE_USER=ualflix
+      - QUEUE_PASSWORD=ualflix_password
+      - AUTH_SERVICE_URL=http://authentication_service:8000
+    volumes:
+      - ./video_data:/videos
+    networks:
+      - ualflix_net
+    depends_on:
+      - queue_service
+      - authentication_service
+
+  # Streaming Service
+  streaming_service:
+    image: ualflix/streaming_service:latest
+    deploy:
+      replicas: 2
+      restart_policy:
+        condition: on-failure
+    environment:
+      - MONGODB_CONNECTION_STRING=mongodb://ualflix_db_primary:27017,ualflix_db_secondary:27017,ualflix_db_arbiter:27017/ualflix?replicaSet=ualflix-replica-set
+      - MONGODB_PRIMARY_HOST=ualflix_db_primary
+      - MONGODB_SECONDARY_HOST=ualflix_db_secondary
+      - MONGODB_REPLICA_SET=ualflix-replica-set
+      - MONGODB_DATABASE=ualflix
+      - QUEUE_HOST=queue_service
+      - QUEUE_USER=ualflix
+      - QUEUE_PASSWORD=ualflix_password
+      - CATALOG_SERVICE_URL=http://catalog_service:8000
+    volumes:
+      - ./video_data:/videos
+    networks:
+      - ualflix_net
+    depends_on:
+      - queue_service
+      - catalog_service
+
+  # Video Processor
+  video_processor:
+    image: ualflix/video_processor:latest
+    deploy:
+      replicas: 2
+      restart_policy:
+        condition: on-failure
+    environment:
+      - MONGODB_CONNECTION_STRING=mongodb://ualflix_db_primary:27017,ualflix_db_secondary:27017,ualflix_db_arbiter:27017/ualflix?replicaSet=ualflix-replica-set
+      - MONGODB_PRIMARY_HOST=ualflix_db_primary
+      - MONGODB_SECONDARY_HOST=ualflix_db_secondary
+      - MONGODB_REPLICA_SET=ualflix-replica-set
+      - MONGODB_DATABASE=ualflix
+      - QUEUE_HOST=queue_service
+      - QUEUE_USER=ualflix
+      - QUEUE_PASSWORD=ualflix_password
+      - CATALOG_SERVICE_URL=http://catalog_service:8000
+    volumes:
+      - ./video_data:/videos
+    networks:
+      - ualflix_net
+    depends_on:
+      - queue_service
+      - catalog_service
+
+  # Frontend
+  frontend:
+    image: ualflix/frontend:latest
+    deploy:
+      replicas: 2
+      restart_policy:
+        condition: on-failure
+    environment:
+      - REACT_APP_API_URL=http://localhost:8000
+    networks:
+      - ualflix_net
+    depends_on:
+      - authentication_service
+      - catalog_service
+      - streaming_service
+
+  # Admin Service
+  admin_service:
+    image: ualflix/admin_service:latest
+    deploy:
+      replicas: 1
+      restart_policy:
+        condition: on-failure
+      placement:
+        constraints: [node.role == manager]
+    environment:
+      - MONGODB_CONNECTION_STRING=mongodb://ualflix_db_primary:27017,ualflix_db_secondary:27017,ualflix_db_arbiter:27017/ualflix?replicaSet=ualflix-replica-set
+      - MONGODB_PRIMARY_HOST=ualflix_db_primary
+      - MONGODB_SECONDARY_HOST=ualflix_db_secondary
+      - MONGODB_REPLICA_SET=ualflix-replica-set
+      - MONGODB_DATABASE=ualflix
+    networks:
+      - ualflix_net
+    depends_on:
+      - ualflix_db_primary
+      - ualflix_db_secondary
+      - ualflix_db_arbiter
+
+networks:
+  ualflix_net:
+    external: true
+
+volumes:
+  mongo_primary_data:
+  mongo_secondary_data:
+  mongo_arbiter_data: 

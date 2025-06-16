@@ -1,0 +1,261 @@
+# k8s/ingress/nginx-configmap.yaml
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: nginx-config
+  namespace: ualflix
+  labels:
+    app: nginx-gateway
+    component: config
+data:
+  nginx.conf: |
+    user nginx;
+    worker_processes auto;
+    error_log /var/log/nginx/error.log warn;
+    pid /var/run/nginx.pid;
+
+    events {
+        worker_connections 1024;
+        use epoll;
+        multi_accept on;
+    }
+
+    http {
+        include /etc/nginx/mime.types;
+        default_type application/octet-stream;
+        
+        # Log format para análise de performance
+        log_format main '$remote_addr - $remote_user [$time_local] "$request" '
+                        '$status $body_bytes_sent "$http_referer" '
+                        '"$http_user_agent" "$http_x_forwarded_for" '
+                        'rt=$request_time uct="$upstream_connect_time" '
+                        'uht="$upstream_header_time" urt="$upstream_response_time"';
+        
+        access_log /var/log/nginx/access.log main;
+        
+        # Performance settings
+        sendfile on;
+        tcp_nopush on;
+        tcp_nodelay on;
+        keepalive_timeout 65;
+        types_hash_max_size 2048;
+        client_max_body_size 1024M;
+        
+        # Gzip Settings
+        gzip on;
+        gzip_vary on;
+        gzip_proxied any;
+        gzip_comp_level 6;
+        gzip_types text/plain text/css application/json application/javascript 
+                   text/xml application/xml application/xml+rss text/javascript
+                   application/vnd.api+json;
+
+        # Rate limiting
+        limit_req_zone $binary_remote_addr zone=api:10m rate=10r/s;
+        limit_req_zone $binary_remote_addr zone=upload:10m rate=2r/s;
+
+        # Upstream definitions para load balancing
+        upstream frontend_backend {
+            least_conn;
+            server frontend-service.ualflix.svc.cluster.local:3000 max_fails=3 fail_timeout=30s;
+            keepalive 32;
+        }
+
+        upstream auth_backend {
+            least_conn;
+            server auth-service.ualflix.svc.cluster.local:8000 max_fails=3 fail_timeout=30s;
+            keepalive 16;
+        }
+
+        upstream catalog_backend {
+            least_conn;
+            server catalog-service.ualflix.svc.cluster.local:8000 max_fails=3 fail_timeout=30s;
+            keepalive 32;
+        }
+
+        upstream streaming_backend {
+            least_conn;
+            server streaming-service.ualflix.svc.cluster.local:8001 max_fails=3 fail_timeout=30s;
+            keepalive 32;
+        }
+
+        upstream admin_backend {
+            least_conn;
+            server admin-service.ualflix.svc.cluster.local:8002 max_fails=3 fail_timeout=30s;
+            keepalive 16;
+        }
+
+        # Health check endpoint
+        server {
+            listen 8081;
+            server_name localhost;
+            
+            location /nginx-health {
+                access_log off;
+                return 200 "healthy\n";
+                add_header Content-Type text/plain;
+            }
+        }
+
+        # Main server - ROTEADOR PRINCIPAL
+        server {
+            listen 8080;
+            server_name _;
+            
+            # Security headers
+            add_header X-Frame-Options DENY;
+            add_header X-Content-Type-Options nosniff;
+            add_header X-XSS-Protection "1; mode=block";
+            
+            # CORS headers para desenvolvimento
+            add_header Access-Control-Allow-Origin "*" always;
+            add_header Access-Control-Allow-Methods "GET, POST, OPTIONS, PUT, DELETE" always;
+            add_header Access-Control-Allow-Headers "DNT,User-Agent,X-Requested-With,If-Modified-Since,Cache-Control,Content-Type,Range,Authorization,X-Session-Token" always;
+            add_header Access-Control-Expose-Headers "Content-Length,Content-Range" always;
+
+            # Handle preflight requests
+            if ($request_method = 'OPTIONS') {
+                add_header Access-Control-Allow-Origin "*";
+                add_header Access-Control-Allow-Methods "GET, POST, OPTIONS, PUT, DELETE";
+                add_header Access-Control-Allow-Headers "DNT,User-Agent,X-Requested-With,If-Modified-Since,Cache-Control,Content-Type,Range,Authorization,X-Session-Token";
+                add_header Access-Control-Max-Age 1728000;
+                add_header Content-Type "text/plain; charset=utf-8";
+                add_header Content-Length 0;
+                return 204;
+            }
+
+            # Frontend (React app) - ROTA PRINCIPAL
+            location / {
+                proxy_pass http://frontend_backend;
+                proxy_http_version 1.1;
+                proxy_set_header Upgrade $http_upgrade;
+                proxy_set_header Connection "upgrade";
+                proxy_set_header Host $host;
+                proxy_set_header X-Real-IP $remote_addr;
+                proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+                proxy_set_header X-Forwarded-Proto $scheme;
+                proxy_cache_bypass $http_upgrade;
+                
+                # Timeouts para frontend
+                proxy_connect_timeout 5s;
+                proxy_send_timeout 60s;
+                proxy_read_timeout 60s;
+            }
+
+            # Authentication API - FUNCIONALIDADE 6: Load Balancing
+            location /api/auth/ {
+                limit_req zone=api burst=20 nodelay;
+                
+                rewrite ^/api/auth(/.*)$ $1 break;
+                proxy_pass http://auth_backend;
+                proxy_http_version 1.1;
+                proxy_set_header Host $host;
+                proxy_set_header X-Real-IP $remote_addr;
+                proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+                proxy_set_header X-Forwarded-Proto $scheme;
+                proxy_set_header X-Service-Name "auth";
+                
+                # Timeouts para auth
+                proxy_connect_timeout 5s;
+                proxy_send_timeout 30s;
+                proxy_read_timeout 30s;
+            }
+
+            # Admin API - FUNCIONALIDADE 7: Métricas
+            location /api/admin/ {
+                limit_req zone=api burst=10 nodelay;
+                
+                rewrite ^/api/admin(/.*)$ /api/admin$1 break;
+                proxy_pass http://admin_backend;
+                proxy_http_version 1.1;
+                proxy_set_header Host $host;
+                proxy_set_header X-Real-IP $remote_addr;
+                proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+                proxy_set_header X-Forwarded-Proto $scheme;
+                proxy_set_header X-Service-Name "admin";
+                
+                # Timeouts maiores para admin (métricas)
+                proxy_connect_timeout 10s;
+                proxy_send_timeout 60s;
+                proxy_read_timeout 60s;
+            }
+
+            # Upload API - Tratamento especial para uploads grandes
+            location /api/upload {
+                limit_req zone=upload burst=5 nodelay;
+                
+                rewrite ^/api(/.*)$ $1 break;
+                proxy_pass http://catalog_backend;
+                proxy_http_version 1.1;
+                proxy_set_header Host $host;
+                proxy_set_header X-Real-IP $remote_addr;
+                proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+                proxy_set_header X-Forwarded-Proto $scheme;
+                proxy_set_header X-Service-Name "catalog-upload";
+                
+                # Timeouts especiais para uploads
+                proxy_connect_timeout 10s;
+                proxy_send_timeout 300s;
+                proxy_read_timeout 300s;
+                proxy_request_buffering off;
+            }
+
+            # Catalog API - FUNCIONALIDADE 6: Múltiplas réplicas
+            location /api/ {
+                limit_req zone=api burst=30 nodelay;
+                
+                rewrite ^/api(/.*)$ $1 break;
+                proxy_pass http://catalog_backend;
+                proxy_http_version 1.1;
+                proxy_set_header Host $host;
+                proxy_set_header X-Real-IP $remote_addr;
+                proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+                proxy_set_header X-Forwarded-Proto $scheme;
+                proxy_set_header X-Service-Name "catalog";
+                
+                # Timeouts para catalog
+                proxy_connect_timeout 5s;
+                proxy_send_timeout 60s;
+                proxy_read_timeout 60s;
+            }
+
+            # Streaming - FUNCIONALIDADE 6: Load balancing para streaming
+            location /stream/ {
+                proxy_pass http://streaming_backend/stream/;
+                proxy_http_version 1.1;
+                proxy_set_header Host $host;
+                proxy_set_header X-Real-IP $remote_addr;
+                proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+                proxy_set_header Range $http_range;
+                proxy_set_header X-Service-Name "streaming";
+                
+                # Configurações especiais para streaming
+                proxy_buffering off;
+                proxy_cache off;
+                proxy_connect_timeout 5s;
+                proxy_send_timeout 600s;
+                proxy_read_timeout 600s;
+                
+                # Headers para streaming
+                add_header Accept-Ranges bytes;
+                add_header Cache-Control "public, max-age=3600";
+            }
+
+            # Métricas do próprio NGINX
+            location /nginx-status {
+                stub_status on;
+                access_log off;
+                allow 10.0.0.0/8;
+                allow 172.16.0.0/12;
+                allow 192.168.0.0/16;
+                deny all;
+            }
+
+            # Health check
+            location /health {
+                access_log off;
+                return 200 "NGINX Gateway healthy\n";
+                add_header Content-Type text/plain;
+            }
+        }
+    }

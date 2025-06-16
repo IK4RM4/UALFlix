@@ -1,0 +1,75 @@
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: mongodb-replica-init
+  namespace: ualflix
+  labels:
+    app: mongodb
+    component: init
+spec:
+  template:
+    metadata:
+      labels:
+        app: mongodb-init
+    spec:
+      restartPolicy: OnFailure
+      containers:
+      - name: mongodb-init
+        image: mongo:6.0
+        command:
+        - /bin/bash
+        - -c
+        - |
+          echo "Waiting for MongoDB pods to be ready..."
+          for i in {0..2}; do
+            while ! mongosh --host mongodb-$i.mongodb-headless.ualflix.svc.cluster.local:27017 --eval "print('MongoDB $i ready')" --quiet; do
+              echo "Waiting for mongodb-$i..."
+              sleep 5
+            done
+          done
+          
+          echo "Initializing Replica Set..."
+          mongosh --host mongodb-0.mongodb-headless.ualflix.svc.cluster.local:27017 --eval "
+          rs.initiate({
+            _id: 'ualflix-replica-set',
+            members: [
+              { _id: 0, host: 'mongodb-0.mongodb-headless.ualflix.svc.cluster.local:27017', priority: 2 },
+              { _id: 1, host: 'mongodb-1.mongodb-headless.ualflix.svc.cluster.local:27017', priority: 1 },
+              { _id: 2, host: 'mongodb-2.mongodb-headless.ualflix.svc.cluster.local:27017', priority: 1 }
+            ]
+          });
+          
+          sleep(10);
+          
+          use admin;
+          db.createUser({
+            user: 'admin',
+            pwd: 'password',
+            roles: [{ role: 'root', db: 'admin' }]
+          });
+          
+          use ualflix;
+          db.createCollection('users');
+          db.createCollection('videos');
+          db.createCollection('video_views');
+          db.createCollection('replication_test');
+          
+          db.users.createIndex({ 'username': 1 }, { unique: true });
+          db.users.createIndex({ 'email': 1 });
+          db.videos.createIndex({ 'user_id': 1 });
+          db.videos.createIndex({ 'status': 1 });
+          db.video_views.createIndex({ 'video_id': 1 });
+          
+          db.users.insertOne({
+            username: 'admin',
+            email: 'admin@ualflix.com',
+            password: 'pbkdf2:sha256:260000\$5fGQQvXhm0XKU6iF\$1d1c65c1f0ad1c02b20e9c1e5f9a4b0c8d9e7f6g5h4i3j2k1l0m9n8o7p6q5r4s3t2u1v0w9x8y7z6a5b4c3d2e1f0',
+            is_admin: true,
+            created_at: new Date(),
+            updated_at: new Date()
+          });
+          
+          print('MongoDB Replica Set initialized successfully!');
+          " --quiet
+
+---

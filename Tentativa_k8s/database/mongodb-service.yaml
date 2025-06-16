@@ -1,0 +1,39 @@
+# Headless service for StatefulSet DNS entries
+apiVersion: v1
+kind: Service
+metadata:
+  name: mongodb-headless
+  namespace: ualflix
+  labels:
+    app: mongodb
+    tier: database
+spec:
+  clusterIP: None
+  selector:
+    app: mongodb
+  ports:
+  - port: 27017
+    targetPort: 27017
+    protocol: TCP
+    name: mongodb
+---
+# Regular service for stable access to MongoDB primary
+apiVersion: v1
+kind: Service
+metadata:
+  name: mongodb-service
+  namespace: ualflix
+  labels:
+    app: mongodb
+    tier: database
+spec:
+  selector:
+    app: mongodb
+  ports:
+  - port: 27017
+    targetPort: 27017
+    protocol: TCP
+    name: mongodb
+  type: ClusterIP
+  # Use the first pod (primary) by default
+  sessionAffinity: ClientIP

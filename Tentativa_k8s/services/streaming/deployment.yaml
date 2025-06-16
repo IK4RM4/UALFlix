@@ -1,0 +1,57 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: streaming-service
+  namespace: ualflix
+  labels:
+    app: streaming-service
+    tier: backend
+    component: streaming
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: streaming-service
+  template:
+    metadata:
+      labels:
+        app: streaming-service
+        tier: backend
+        component: streaming
+      annotations:
+        prometheus.io/scrape: "true"
+        prometheus.io/port: "8001"
+        prometheus.io/path: "/metrics"
+    spec:
+      containers:
+      - name: streaming-service
+        image: streaming_service:latest
+        imagePullPolicy: Never
+        ports:
+        - containerPort: 8001
+          name: http
+        resources:
+          requests:
+            memory: "256Mi"
+            cpu: "250m"
+          limits:
+            memory: "512Mi"
+            cpu: "500m"
+        livenessProbe:
+          httpGet:
+            path: /health
+            port: 8001
+          initialDelaySeconds: 30
+        readinessProbe:
+          httpGet:
+            path: /health
+            port: 8001
+          initialDelaySeconds: 10
+        volumeMounts:
+        - name: video-storage
+          mountPath: /videos
+          readOnly: true
+      volumes:
+      - name: video-storage
+        persistentVolumeClaim:
+          claimName: video-storage-pvc

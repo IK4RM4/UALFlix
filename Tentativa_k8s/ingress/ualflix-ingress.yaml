@@ -1,0 +1,148 @@
+# INGRESS - Roteamento externo UALFlix com MongoDB
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: ualflix-ingress
+  namespace: ualflix
+  labels:
+    app: ualflix
+    component: ingress
+  annotations:
+    # Configurações do Nginx Ingress
+    nginx.ingress.kubernetes.io/rewrite-target: /
+    nginx.ingress.kubernetes.io/proxy-body-size: "1024m"  # Para uploads de vídeo
+    nginx.ingress.kubernetes.io/proxy-read-timeout: "600"
+    nginx.ingress.kubernetes.io/proxy-send-timeout: "600"
+    # CORS para desenvolvimento
+    nginx.ingress.kubernetes.io/enable-cors: "true"
+    nginx.ingress.kubernetes.io/cors-allow-origin: "*"
+    nginx.ingress.kubernetes.io/cors-allow-methods: "GET, POST, OPTIONS"
+    nginx.ingress.kubernetes.io/cors-allow-headers: "Content-Type, Authorization, X-Session-Token"
+spec:
+  rules:
+  - host: ualflix.local  # Host local para desenvolvimento
+    http:
+      paths:
+      # Frontend (React) - Rota principal
+      - path: /
+        pathType: Prefix
+        backend:
+          service:
+            name: frontend-service
+            port:
+              number: 3000
+      
+      # API de Autenticação
+      - path: /api/auth
+        pathType: Prefix
+        backend:
+          service:
+            name: auth-service
+            port:
+              number: 8000
+      
+      # API de Administração - FUNCIONALIDADE 7
+      - path: /api/admin
+        pathType: Prefix
+        backend:
+          service:
+            name: admin-service
+            port:
+              number: 8002
+      
+      # API do Catálogo (uploads, listagem)
+      - path: /api
+        pathType: Prefix
+        backend:
+          service:
+            name: catalog-service
+            port:
+              number: 8000
+      
+      # Streaming de vídeos
+      - path: /stream
+        pathType: Prefix
+        backend:
+          service:
+            name: streaming-service
+            port:
+              number: 8001
+      
+      # Prometheus - FUNCIONALIDADE 7: Métricas
+      - path: /prometheus
+        pathType: Prefix
+        backend:
+          service:
+            name: prometheus-service
+            port:
+              number: 9090
+      
+      # Grafana - FUNCIONALIDADE 7: Dashboards
+      - path: /grafana
+        pathType: Prefix
+        backend:
+          service:
+            name: grafana-service
+            port:
+              number: 3000
+      
+      # RabbitMQ Management (opcional)
+      - path: /rabbitmq
+        pathType: Prefix
+        backend:
+          service:
+            name: rabbitmq-service
+            port:
+              number: 15672
+---
+# Ingress alternativo para acesso direto (sem host específico)
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: ualflix-ingress-nodeport
+  namespace: ualflix
+  labels:
+    app: ualflix
+    component: ingress-direct
+  annotations:
+    nginx.ingress.kubernetes.io/rewrite-target: /
+    nginx.ingress.kubernetes.io/proxy-body-size: "1024m"
+spec:
+  rules:
+  - http:  # Sem host específico - funciona com IP do Minikube
+      paths:
+      - path: /
+        pathType: Prefix
+        backend:
+          service:
+            name: frontend-service
+            port:
+              number: 3000
+      - path: /api/auth
+        pathType: Prefix
+        backend:
+          service:
+            name: auth-service
+            port:
+              number: 8000
+      - path: /api/admin
+        pathType: Prefix
+        backend:
+          service:
+            name: admin-service
+            port:
+              number: 8002
+      - path: /api
+        pathType: Prefix
+        backend:
+          service:
+            name: catalog-service
+            port:
+              number: 8000
+      - path: /stream
+        pathType: Prefix
+        backend:
+          service:
+            name: streaming-service
+            port:
+              number: 8001
